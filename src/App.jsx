@@ -54,8 +54,6 @@ const DEFAULT_JUNCTION_DATA = [
 
 const FIELDS = [
   { key: "village", label: "Village", group: "location" },
-  { key: "tehsil", label: "Tehsil", group: "location" },
-  { key: "district", label: "District", group: "location" },
   { key: "khasraNo", label: "Khasra No.", group: "location" },
   { key: "junctionFrom", label: "Junction: From", group: "pipeline", type: "select" },
   { key: "junctionTo", label: "Junction: To", group: "pipeline", type: "select" },
@@ -169,7 +167,7 @@ async function extractFromPDF(base64Data) {
       role: "user",
       content: [
         { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64Data } },
-        { type: "text", text: `Extract the following fields from this crop compensation document. Return ONLY a valid JSON object with no preamble, explanation, or markdown. Use empty string for any field not found.\n\nFields: village, tehsil, district, khasraNo, junctionFrom (the starting node of the pipeline section, e.g. "J-1"), junctionTo (the ending node of the pipeline section, e.g. "J-3"), chainageFrom (numeric), chainageTo (numeric), length (meters numeric), dia (MM numeric), row (meters numeric), landOwnerName, farmerName (lessee who receives compensation), crop, affectedArea (hectares numeric), mandiRate (per quintal numeric), yield (quintals/hectare numeric), compensationAmount (total amount numeric), bankName, accountNo, ifscCode\n\nReturn only the JSON object.` }
+        { type: "text", text: `Extract the following fields from this crop compensation document. Return ONLY a valid JSON object with no preamble, explanation, or markdown. Use empty string for any field not found.\n\nFields: village, khasraNo, junctionFrom (the starting node of the pipeline section, e.g. "J-1"), junctionTo (the ending node of the pipeline section, e.g. "J-3"), chainageFrom (numeric), chainageTo (numeric), length (meters numeric), dia (MM numeric), row (meters numeric), landOwnerName, farmerName (lessee who receives compensation), crop, affectedArea (hectares numeric), mandiRate (per quintal numeric), yield (quintals/hectare numeric), compensationAmount (total amount numeric), bankName, accountNo, ifscCode\n\nReturn only the JSON object.` }
       ]
     }]
   });
@@ -230,6 +228,7 @@ export default function App() {
   const [junctionEdit, setJunctionEdit] = useState(null); // index of row being edited
   const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "" });
   const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "" });
+  const [junctionDeleteConfirm, setJunctionDeleteConfirm] = useState(null);
   const fileRef = useRef();
 
   // Persist junction data to localStorage
@@ -671,8 +670,18 @@ export default function App() {
                               <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
                                 <button onClick={() => { setJunctionEdit(idx); setJunctionEditForm({ from: j.from, to: j.to, length: String(j.length) }); }}
                                   style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Edit</button>
-                                <button onClick={() => deleteJunction(idx)}
-                                  style={{ background: "none", border: "1px solid #fca5a5", borderRadius: 4, color: "#dc2626", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Delete</button>
+                                {junctionDeleteConfirm === idx ? (
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>Confirm?</span>
+                                    <button onClick={() => { deleteJunction(idx); setJunctionDeleteConfirm(null); }}
+                                      style={{ background: "#dc2626", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, fontWeight: 600, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
+                                    <button onClick={() => setJunctionDeleteConfirm(null)}
+                                      style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.text, fontSize: 12, fontWeight: 600, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
+                                  </span>
+                                ) : (
+                                  <button onClick={() => setJunctionDeleteConfirm(idx)}
+                                    style={{ background: "none", border: "1px solid #fca5a5", borderRadius: 4, color: "#dc2626", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Delete</button>
+                                )}
                               </td>
                             </>
                           )}
@@ -784,7 +793,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Village", "Tehsil", "District", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
+                            {["#", "Date", "Approval ID", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -800,8 +809,6 @@ export default function App() {
                                   : <span style={{ color: colors.textLight, fontSize: 11 }}>Pending</span>}
                               </td>
                               <td style={{ padding: "11px 14px" }}>{e.village}</td>
-                              <td style={{ padding: "11px 14px" }}>{e.tehsil}</td>
-                              <td style={{ padding: "11px 14px" }}>{e.district}</td>
                               <td style={{ padding: "11px 14px", color: colors.navy, fontWeight: 600 }}>{e.khasraNo}</td>
                               <td style={{ padding: "11px 14px" }}>{e.junctionFrom}</td>
                               <td style={{ padding: "11px 14px" }}>{e.junctionTo}</td>
@@ -880,7 +887,7 @@ export default function App() {
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                               <thead>
                                 <tr>
-                                  {["#", "Date", "Village", "Tehsil", "District", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC"].map(h => (
+                                  {["#", "Date", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC"].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
@@ -891,8 +898,6 @@ export default function App() {
                                     <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{e.srNo}</td>
                                     <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.village}</td>
-                                    <td style={{ padding: "11px 14px" }}>{e.tehsil}</td>
-                                    <td style={{ padding: "11px 14px" }}>{e.district}</td>
                                     <td style={{ padding: "11px 14px", color: colors.navy, fontWeight: 600 }}>{e.khasraNo}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.junctionFrom}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.junctionTo}</td>
