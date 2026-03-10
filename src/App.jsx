@@ -53,6 +53,7 @@ const DEFAULT_JUNCTION_DATA = [
 ];
 
 const FIELDS = [
+  { key: "cluster", label: "Cluster", group: "location", type: "select", options: ["A", "B", "C", "D1", "D2", "E"] },
   { key: "village", label: "Village", group: "location" },
   { key: "khasraNo", label: "Khasra No.", group: "location" },
   { key: "junctionFrom", label: "Junction: From", group: "pipeline", type: "select" },
@@ -167,7 +168,7 @@ async function extractFromPDF(base64Data) {
       role: "user",
       content: [
         { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64Data } },
-        { type: "text", text: `Extract the following fields from this crop compensation document. Return ONLY a valid JSON object with no preamble, explanation, or markdown. Use empty string for any field not found.\n\nFields: village, khasraNo, junctionFrom (the starting node of the pipeline section, e.g. "J-1"), junctionTo (the ending node of the pipeline section, e.g. "J-3"), chainageFrom (numeric), chainageTo (numeric), length (meters numeric), dia (MM numeric), row (meters numeric), landOwnerName, farmerName (lessee who receives compensation), crop, affectedArea (hectares numeric), mandiRate (per quintal numeric), yield (quintals/hectare numeric), compensationAmount (total amount numeric), bankName, accountNo, ifscCode\n\nReturn only the JSON object.` }
+        { type: "text", text: `Extract the following fields from this crop compensation document. Return ONLY a valid JSON object with no preamble, explanation, or markdown. Use empty string for any field not found.\n\nFields: village, cluster (must be one of: A, B, C, D1, D2, E), khasraNo, junctionFrom (the starting node of the pipeline section, e.g. "J-1"), junctionTo (the ending node of the pipeline section, e.g. "J-3"), chainageFrom (numeric), chainageTo (numeric), length (meters numeric), dia (MM numeric), row (meters numeric), landOwnerName, farmerName (lessee who receives compensation), crop, affectedArea (hectares numeric), mandiRate (per quintal numeric), yield (quintals/hectare numeric), compensationAmount (total amount numeric), bankName, accountNo, ifscCode\n\nReturn only the JSON object.` }
       ]
     }]
   });
@@ -217,7 +218,7 @@ export default function App() {
   const [hoverUpload, setHoverUpload] = useState(false);
   const [junctionData, setJunctionData] = useState(() => {
     try {
-      const s = localStorage.getItem("nvda_junctions");
+      const s = localStorage.getItem("rvr_junctions");
       if (!s) return DEFAULT_JUNCTION_DATA;
       const parsed = JSON.parse(s);
       // Migrate old { name, length } format to { from, to, length }
@@ -233,7 +234,7 @@ export default function App() {
 
   // Persist junction data to localStorage
   useEffect(() => {
-    localStorage.setItem("nvda_junctions", JSON.stringify(junctionData));
+    localStorage.setItem("rvr_junctions", JSON.stringify(junctionData));
   }, [junctionData]);
 
   // Load ledger from Supabase when user logs in
@@ -362,7 +363,7 @@ export default function App() {
   const handleGenerateId = () => {
     const year = new Date().getFullYear();
     const rand = Math.floor(1000 + Math.random() * 9000);
-    setGeneratedApprovalId(`NVDA-${year}-${rand}`);
+    setGeneratedApprovalId(`RVR-${year}-${rand}`);
   };
 
   const handleAcceptPending = async () => {
@@ -439,7 +440,7 @@ export default function App() {
       {/* HEADER */}
       <div style={{ background: colors.navy, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 66, boxShadow: "0 2px 10px rgba(0,0,0,0.2)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ background: colors.gold, color: "white", fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 3, letterSpacing: 1, textTransform: "uppercase" }}>NVDA</div>
+          <div style={{ background: colors.gold, color: "white", fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 3, letterSpacing: 1, textTransform: "uppercase" }}>RVR</div>
           <div>
             <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 19, fontWeight: 600, color: "#ffffff" }}>Crop Compensation Ledger</div>
             <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.45)", marginTop: 2 }}>Pipeline Project — Farmer Compensation Tracker</div>
@@ -552,9 +553,11 @@ export default function App() {
                           <div key={f.key} style={{ padding: "14px 20px", borderRight: (idx + 1) % 3 === 0 ? "none" : `1px solid ${colors.borderLight}`, borderBottom: idx < gFields.length - Math.ceil(gFields.length / 3) * (gFields.length > 3 ? 1 : 0) ? `1px solid ${colors.borderLight}` : "none" }}>
                             <label style={{ fontSize: 10.5, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, display: "block" }}>{f.label}</label>
                             {f.type === "select" ? (() => {
-                              const opts = f.key === "junctionFrom"
-                                ? [...new Set(junctionData.map(j => j.from))].sort()
-                                : [...new Set(junctionData.map(j => j.to))].sort();
+                              const opts = f.options
+                                ? f.options
+                                : f.key === "junctionFrom"
+                                  ? [...new Set(junctionData.map(j => j.from))].sort()
+                                  : [...new Set(junctionData.map(j => j.to))].sort();
                               return (
                                 <select
                                   value={form[f.key]}
@@ -793,7 +796,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
+                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -808,6 +811,7 @@ export default function App() {
                                   ? <span style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #86efac", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{e.approvalId}</span>
                                   : <span style={{ color: colors.textLight, fontSize: 11 }}>Pending</span>}
                               </td>
+                              <td style={{ padding: "11px 14px" }}>{e.cluster}</td>
                               <td style={{ padding: "11px 14px" }}>{e.village}</td>
                               <td style={{ padding: "11px 14px", color: colors.navy, fontWeight: 600 }}>{e.khasraNo}</td>
                               <td style={{ padding: "11px 14px" }}>{e.junctionFrom}</td>
@@ -887,7 +891,7 @@ export default function App() {
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                               <thead>
                                 <tr>
-                                  {["#", "Date", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC"].map(h => (
+                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC"].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
@@ -897,6 +901,7 @@ export default function App() {
                                   <tr key={i} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
                                     <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{e.srNo}</td>
                                     <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
+                                    <td style={{ padding: "11px 14px" }}>{e.cluster}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.village}</td>
                                     <td style={{ padding: "11px 14px", color: colors.navy, fontWeight: 600 }}>{e.khasraNo}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.junctionFrom}</td>
