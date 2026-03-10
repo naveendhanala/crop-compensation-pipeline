@@ -321,11 +321,13 @@ export default function App() {
       const srNo = ledger.length + 1;
       const date = new Date().toLocaleDateString("en-IN");
       const { srNo: _, date: __, approvalId: _d, ...fields } = { ...data };
-      const { error: dbError } = await supabase
+      const { data: inserted, error: dbError } = await supabase
         .from("ledger")
-        .insert({ sr_no: srNo, date, data: { ...fields, approvalId: null } });
+        .insert({ sr_no: srNo, date, data: { ...fields, approvalId: null } })
+        .select("id")
+        .single();
       if (dbError) { setError(`Failed to save to database: ${dbError.message}`); return; }
-      setLedger(prev => [...prev, { ...data, srNo, date, approvalId: null }]);
+      setLedger(prev => [...prev, { ...data, _id: inserted.id, srNo, date, approvalId: null }]);
     }
     setForm(EMPTY_FORM); setCalcFlags([]); setWarnings([]); setPendingEntry(null);
     setStep("saved");
