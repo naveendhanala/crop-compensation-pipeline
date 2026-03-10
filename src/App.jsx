@@ -182,8 +182,8 @@ async function extractFromPDF(base64Data) {
 }
 
 function exportToCSV(ledger) {
-  const headers = ["Sr.No.", "Date", ...FIELDS.map(f => f.label)];
-  const rows = ledger.map(e => [e.srNo, e.date, ...FIELDS.map(f => e[f.key] || "")]);
+  const headers = ["Sr.No.", "Date", "Approval ID", ...FIELDS.map(f => f.label), "Cheque/RTGS Details"];
+  const rows = ledger.map(e => [e.srNo, e.date, e.approvalId || "", ...FIELDS.map(f => e[f.key] || ""), e.paymentDetails || ""]);
   const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -476,11 +476,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button disabled={ledger.length === 0} onClick={() => exportToCSV(ledger)}
-            style={{ background: ledger.length === 0 ? "rgba(255,255,255,0.1)" : colors.gold, color: ledger.length === 0 ? "rgba(255,255,255,0.3)" : "white", border: "none", borderRadius: 5, padding: "7px 18px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: ledger.length === 0 ? "not-allowed" : "pointer" }}>
-            ↓ Export to CSV
-          </button>
-          <button onClick={() => setLoggedIn(false)}
+<button onClick={() => setLoggedIn(false)}
             style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 5, padding: "7px 16px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
             Sign Out
           </button>
@@ -839,7 +835,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
+                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", ""].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -877,6 +873,7 @@ export default function App() {
                               <td style={{ padding: "11px 14px" }}>{e.bankName}</td>
                               <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                               <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
+                              <td style={{ padding: "11px 14px", maxWidth: 200, color: e.paymentDetails ? colors.text : colors.textLight, fontStyle: e.paymentDetails ? "normal" : "italic" }}>{e.paymentDetails || "—"}</td>
                               <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                 <button onClick={() => handleEdit(e)}
                                   style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
