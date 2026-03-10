@@ -235,6 +235,9 @@ export default function App() {
   const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "" });
   const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "" });
   const [junctionDeleteConfirm, setJunctionDeleteConfirm] = useState(null);
+  const [selectedPending, setSelectedPending] = useState(new Set());
+  const [paymentEntry, setPaymentEntry] = useState(null); // _id of record being paid
+  const [paymentInput, setPaymentInput] = useState("");
   const fileRef = useRef();
 
   // Persist junction data to localStorage
@@ -376,9 +379,10 @@ export default function App() {
   };
 
   const handleAcceptPending = async () => {
-    if (!generatedApprovalId || pendingEntries.length === 0) return;
+    if (!generatedApprovalId || selectedPending.size === 0) return;
     setLoading(true);
-    for (const entry of pendingEntries) {
+    const toApprove = pendingEntries.filter(e => selectedPending.has(e._id));
+    for (const entry of toApprove) {
       const { _id, srNo, date, approvalId: _old, ...fields } = entry;
       const { error: dbError } = await supabase
         .from("ledger")
@@ -386,10 +390,26 @@ export default function App() {
         .eq("id", _id);
       if (dbError) { setError(`Failed to approve: ${dbError.message}`); setLoading(false); return; }
     }
-    exportToExcel(pendingEntries, generatedApprovalId);
-    setLedger(prev => prev.map(e => !e.approvalId ? { ...e, approvalId: generatedApprovalId } : e));
+    exportToExcel(toApprove, generatedApprovalId);
+    setLedger(prev => prev.map(e => selectedPending.has(e._id) ? { ...e, approvalId: generatedApprovalId } : e));
+    setSelectedPending(new Set());
     setGeneratedApprovalId(null);
     setLoading(false);
+  };
+
+  const handleSavePayment = async () => {
+    if (!paymentInput.trim() || !paymentEntry) return;
+    const entry = ledger.find(e => e._id === paymentEntry);
+    if (!entry) return;
+    const { _id, srNo, date, approvalId, ...fields } = entry;
+    const { error: dbError } = await supabase
+      .from("ledger")
+      .update({ data: { ...fields, approvalId, paymentDetails: paymentInput.trim() } })
+      .eq("id", _id);
+    if (dbError) { setError(`Failed to save payment: ${dbError.message}`); return; }
+    setLedger(prev => prev.map(e => e._id === _id ? { ...e, paymentDetails: paymentInput.trim() } : e));
+    setPaymentEntry(null);
+    setPaymentInput("");
   };
 
   const colors = {
@@ -830,9 +850,14 @@ export default function App() {
                               <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{e.srNo}</td>
                               <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
                               <td style={{ padding: "11px 14px" }}>
-                                {e.approvalId
-                                  ? <span style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #86efac", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{e.approvalId}</span>
-                                  : <span style={{ color: colors.textLight, fontSize: 11 }}>Pending</span>}
+                                {e.approvalId ? (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                    <span style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #86efac", borderRadius: 4, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{e.approvalId}</span>
+                                    {e.paymentDetails
+                                      ? <span style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #86efac", borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>✓ Paid</span>
+                                      : <span style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 4, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>Approved</span>}
+                                  </div>
+                                ) : <span style={{ color: colors.textLight, fontSize: 11 }}>Pending</span>}
                               </td>
                               <td style={{ padding: "11px 14px" }}>{e.cluster}</td>
                               <td style={{ padding: "11px 14px" }}>{e.village}</td>
@@ -852,11 +877,34 @@ export default function App() {
                               <td style={{ padding: "11px 14px" }}>{e.bankName}</td>
                               <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                               <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
-                              <td style={{ padding: "11px 14px" }}>
+                              <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                 <button onClick={() => handleEdit(e)}
-                                  style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
+                                  style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
                                   Edit
                                 </button>
+                                {e.approvalId && (
+                                  paymentEntry === e._id ? (
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                      <input
+                                        autoFocus
+                                        value={paymentInput}
+                                        onChange={ev => setPaymentInput(ev.target.value)}
+                                        onKeyDown={ev => { if (ev.key === "Enter") handleSavePayment(); if (ev.key === "Escape") { setPaymentEntry(null); setPaymentInput(""); } }}
+                                        placeholder="Cheque/RTGS details"
+                                        style={{ border: `1px solid ${colors.border}`, borderRadius: 4, padding: "4px 8px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, width: 200 }}
+                                      />
+                                      <button onClick={handleSavePayment} disabled={!paymentInput.trim()}
+                                        style={{ background: paymentInput.trim() ? colors.green : "#e8ecf6", color: paymentInput.trim() ? "white" : colors.textLight, border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: paymentInput.trim() ? "pointer" : "not-allowed", fontFamily: "'Source Sans 3', sans-serif" }}>Save</button>
+                                      <button onClick={() => { setPaymentEntry(null); setPaymentInput(""); }}
+                                        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>✕</button>
+                                    </span>
+                                  ) : (
+                                    <button onClick={() => { setPaymentEntry(e._id); setPaymentInput(e.paymentDetails || ""); }}
+                                      style={{ background: "none", border: `1px solid ${e.paymentDetails ? "#86efac" : "#bfdbfe"}`, borderRadius: 4, color: e.paymentDetails ? "#166534" : "#1d4ed8", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
+                                      {e.paymentDetails ? "Edit Payment" : "Add Payment"}
+                                    </button>
+                                  )
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -881,6 +929,7 @@ export default function App() {
                             <div>
                               <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 }}>
                                 {pendingEntries.length} {pendingEntries.length === 1 ? "entry" : "entries"} awaiting approval
+                                {selectedPending.size > 0 && <span style={{ marginLeft: 8, color: colors.navy }}>— {selectedPending.size} selected</span>}
                               </div>
                               {generatedApprovalId && (
                                 <div style={{ fontSize: 13, color: "#78350f", marginTop: 4 }}>
@@ -890,9 +939,9 @@ export default function App() {
                             </div>
                             <div style={{ display: "flex", gap: 10 }}>
                               {!generatedApprovalId ? (
-                                <button onClick={handleGenerateId}
-                                  style={{ background: colors.gold, color: "white", border: "none", borderRadius: 5, padding: "8px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                                  Generate ID
+                                <button onClick={handleGenerateId} disabled={selectedPending.size === 0}
+                                  style={{ background: selectedPending.size > 0 ? colors.gold : "#e8ecf6", color: selectedPending.size > 0 ? "white" : colors.textLight, border: "none", borderRadius: 5, padding: "8px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: selectedPending.size > 0 ? "pointer" : "not-allowed" }}>
+                                  Generate ID for {selectedPending.size > 0 ? `${selectedPending.size} Selected` : "Selected"}
                                 </button>
                               ) : (
                                 <>
@@ -914,6 +963,12 @@ export default function App() {
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                               <thead>
                                 <tr>
+                                  <th style={{ background: "#fffbeb", borderBottom: `1px solid #fde68a`, padding: "10px 14px" }}>
+                                    <input type="checkbox"
+                                      checked={pendingEntries.length > 0 && pendingEntries.every(e => selectedPending.has(e._id))}
+                                      onChange={ev => setSelectedPending(ev.target.checked ? new Set(pendingEntries.map(e => e._id)) : new Set())}
+                                      style={{ cursor: "pointer" }} />
+                                  </th>
                                   {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
@@ -921,7 +976,12 @@ export default function App() {
                               </thead>
                               <tbody>
                                 {pendingEntries.map((e, i) => (
-                                  <tr key={i} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
+                                  <tr key={i} className="trow" style={{ borderBottom: `1px solid #f0f2f8`, background: selectedPending.has(e._id) ? "#fffbeb" : undefined }}>
+                                    <td style={{ padding: "11px 14px" }}>
+                                      <input type="checkbox" checked={selectedPending.has(e._id)}
+                                        onChange={ev => setSelectedPending(prev => { const s = new Set(prev); ev.target.checked ? s.add(e._id) : s.delete(e._id); return s; })}
+                                        style={{ cursor: "pointer" }} />
+                                    </td>
                                     <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{e.srNo}</td>
                                     <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.cluster}</td>
