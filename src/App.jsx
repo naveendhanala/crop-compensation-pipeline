@@ -4,52 +4,52 @@ import Login from "./Login";
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_JUNCTION_DATA = [
-  { name: "J-1 to J-1", length: 1684.9 },
-  { name: "J-1 to J-10", length: 353.61 },
-  { name: "J-10 to J-102", length: 738.97 },
-  { name: "J-102 to J-11", length: 213.2 },
-  { name: "J-11 to J-111", length: 2371.9 },
-  { name: "J-111 to J-121", length: 792.7 },
-  { name: "J-121 to J-122", length: 1035.3 },
-  { name: "J-122 to J-13", length: 207.35 },
-  { name: "J-13 to J-130", length: 2764.1 },
-  { name: "J-130 to J-15", length: 398.07 },
-  { name: "J-15 to J-157", length: 253.14 },
-  { name: "J-157 to J-18", length: 1088.6 },
-  { name: "J-18 to J-189", length: 320.86 },
-  { name: "J-189 to J-2", length: 665.09 },
-  { name: "J-2 to J-20", length: 551.73 },
-  { name: "J-20 to J-22", length: 566.13 },
-  { name: "J-22 to J-220", length: 2035.2 },
-  { name: "J-220 to J-23", length: 607.37 },
-  { name: "J-23 to J-23", length: 2288.5 },
-  { name: "J-23 to J-233", length: 188.85 },
-  { name: "J-233 to J-247", length: 688.81 },
-  { name: "J-247 to J-254", length: 666.91 },
-  { name: "J-254 to J-3", length: 554.1 },
-  { name: "J-3 to J-3", length: 2118.9 },
-  { name: "J-3 to J-34", length: 1185.8 },
-  { name: "J-34 to J-34", length: 3725.9 },
-  { name: "J-34 to J-35", length: 36.21 },
-  { name: "J-35 to J-36", length: 282.68 },
-  { name: "J-36 to J-36", length: 803.64 },
-  { name: "J-36 to J-51", length: 266.71 },
-  { name: "J-51 to J-51", length: 1234.1 },
-  { name: "J-51 to J-6", length: 399.61 },
-  { name: "J-6 to J-62", length: 739.98 },
-  { name: "J-62 to J-65", length: 513.25 },
-  { name: "J-65 to J-67", length: 631.06 },
-  { name: "J-67 to J-7", length: 989.77 },
-  { name: "J-7 to J-70", length: 798.95 },
-  { name: "J-70 to J-74", length: 541.26 },
-  { name: "J-74 to J-77", length: 681.2 },
-  { name: "J-77 to J-79", length: 920.63 },
-  { name: "J-79 to J-85", length: 142.43 },
-  { name: "J-85 to J-90", length: 252.82 },
-  { name: "J-90 to J-95", length: 263.48 },
-  { name: "J-95 to J-96", length: 872.79 },
-  { name: "J-96 to PH-1", length: 492.13 },
-  { name: "PH-1 to J-1", length: 25.5 },
+  { from: "J-1",   to: "J-3",   length: 1684.9  },
+  { from: "J-1",   to: "J-2",   length: 353.61  },
+  { from: "J-10",  to: "J-13",  length: 738.97  },
+  { from: "J-102", to: "J-111", length: 213.2   },
+  { from: "J-11",  to: "J-23",  length: 2371.9  },
+  { from: "J-111", to: "J-122", length: 792.7   },
+  { from: "J-121", to: "J-157", length: 1035.3  },
+  { from: "J-122", to: "J-130", length: 207.35  },
+  { from: "J-13",  to: "J-22",  length: 2764.1  },
+  { from: "J-130", to: "J-139", length: 398.07  },
+  { from: "J-15",  to: "J-18",  length: 253.14  },
+  { from: "J-157", to: "J-189", length: 1088.6  },
+  { from: "J-18",  to: "J-20",  length: 320.86  },
+  { from: "J-189", to: "J-220", length: 665.09  },
+  { from: "J-2",   to: "J-6",   length: 551.73  },
+  { from: "J-20",  to: "J-25",  length: 566.13  },
+  { from: "J-22",  to: "J-36",  length: 2035.2  },
+  { from: "J-220", to: "J-233", length: 607.37  },
+  { from: "J-23",  to: "J-34",  length: 2288.5  },
+  { from: "J-23",  to: "J-27",  length: 188.85  },
+  { from: "J-233", to: "J-247", length: 688.81  },
+  { from: "J-247", to: "J-254", length: 666.91  },
+  { from: "J-254", to: "J-261", length: 554.1   },
+  { from: "J-3",   to: "J-10",  length: 2118.9  },
+  { from: "J-3",   to: "J-7",   length: 1185.8  },
+  { from: "J-34",  to: "J-65",  length: 3725.9  },
+  { from: "J-34",  to: "J-35",  length: 36.21   },
+  { from: "J-35",  to: "J-44",  length: 282.68  },
+  { from: "J-36",  to: "J-51",  length: 803.64  },
+  { from: "J-36",  to: "J-47",  length: 266.71  },
+  { from: "J-51",  to: "J-62",  length: 1234.1  },
+  { from: "J-51",  to: "J-54",  length: 399.61  },
+  { from: "J-6",   to: "J-15",  length: 739.98  },
+  { from: "J-62",  to: "J-67",  length: 513.25  },
+  { from: "J-65",  to: "J-70",  length: 631.06  },
+  { from: "J-67",  to: "J-77",  length: 989.77  },
+  { from: "J-7",   to: "J-11",  length: 798.95  },
+  { from: "J-70",  to: "J-74",  length: 541.26  },
+  { from: "J-74",  to: "J-79",  length: 681.2   },
+  { from: "J-77",  to: "J-95",  length: 920.63  },
+  { from: "J-79",  to: "J-85",  length: 142.43  },
+  { from: "J-85",  to: "J-90",  length: 252.82  },
+  { from: "J-90",  to: "J-96",  length: 263.48  },
+  { from: "J-95",  to: "J-121", length: 872.79  },
+  { from: "J-96",  to: "J-102", length: 492.13  },
+  { from: "PH-1",  to: "J-1",   length: 25.5    },
 ];
 
 const FIELDS = [
@@ -57,7 +57,8 @@ const FIELDS = [
   { key: "tehsil", label: "Tehsil", group: "location" },
   { key: "district", label: "District", group: "location" },
   { key: "khasraNo", label: "Khasra No.", group: "location" },
-  { key: "junction", label: "Junction", group: "pipeline", type: "select" },
+  { key: "junctionFrom", label: "Junction: From", group: "pipeline", type: "select" },
+  { key: "junctionTo", label: "Junction: To", group: "pipeline", type: "select" },
   { key: "chainageFrom", label: "Chainage From", group: "pipeline" },
   { key: "chainageTo", label: "Chainage To", group: "pipeline" },
   { key: "length", label: "Length (m)", group: "pipeline" },
@@ -160,7 +161,7 @@ const anthropic = new Anthropic({
   dangerouslyAllowBrowser: true,
 });
 
-async function extractFromPDF(base64Data, junctionNames) {
+async function extractFromPDF(base64Data) {
   const response = await anthropic.messages.create({
     model: "claude-opus-4-6",
     max_tokens: 1024,
@@ -168,7 +169,7 @@ async function extractFromPDF(base64Data, junctionNames) {
       role: "user",
       content: [
         { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64Data } },
-        { type: "text", text: `Extract the following fields from this crop compensation document. Return ONLY a valid JSON object with no preamble, explanation, or markdown. Use empty string for any field not found.\n\nFields: village, tehsil, district, khasraNo, junction, chainageFrom (numeric), chainageTo (numeric), length (meters numeric), dia (MM numeric), row (meters numeric), landOwnerName, farmerName (lessee who receives compensation), crop, affectedArea (hectares numeric), mandiRate (per quintal numeric), yield (quintals/hectare numeric), compensationAmount (total amount numeric), bankName, accountNo, ifscCode\n\nFor the "junction" field, find the pipeline section/junction mentioned in the document and match it to the closest option from this list (return the exact string from the list, or empty string if none match):\n${junctionNames.join(", ")}\n\nReturn only the JSON object.` }
+        { type: "text", text: `Extract the following fields from this crop compensation document. Return ONLY a valid JSON object with no preamble, explanation, or markdown. Use empty string for any field not found.\n\nFields: village, tehsil, district, khasraNo, junctionFrom (the starting node of the pipeline section, e.g. "J-1"), junctionTo (the ending node of the pipeline section, e.g. "J-3"), chainageFrom (numeric), chainageTo (numeric), length (meters numeric), dia (MM numeric), row (meters numeric), landOwnerName, farmerName (lessee who receives compensation), crop, affectedArea (hectares numeric), mandiRate (per quintal numeric), yield (quintals/hectare numeric), compensationAmount (total amount numeric), bankName, accountNo, ifscCode\n\nReturn only the JSON object.` }
       ]
     }]
   });
@@ -217,12 +218,18 @@ export default function App() {
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
   const [junctionData, setJunctionData] = useState(() => {
-    try { const s = localStorage.getItem("nvda_junctions"); return s ? JSON.parse(s) : DEFAULT_JUNCTION_DATA; }
-    catch { return DEFAULT_JUNCTION_DATA; }
+    try {
+      const s = localStorage.getItem("nvda_junctions");
+      if (!s) return DEFAULT_JUNCTION_DATA;
+      const parsed = JSON.parse(s);
+      // Migrate old { name, length } format to { from, to, length }
+      if (parsed.length > 0 && parsed[0].name !== undefined) return DEFAULT_JUNCTION_DATA;
+      return parsed;
+    } catch { return DEFAULT_JUNCTION_DATA; }
   });
   const [junctionEdit, setJunctionEdit] = useState(null); // index of row being edited
-  const [junctionEditForm, setJunctionEditForm] = useState({ name: "", length: "" });
-  const [newJunction, setNewJunction] = useState({ name: "", length: "" });
+  const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "" });
+  const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "" });
   const fileRef = useRef();
 
   // Persist junction data to localStorage
@@ -253,7 +260,7 @@ export default function App() {
         r.onerror = () => rej(new Error("Failed"));
         r.readAsDataURL(file);
       });
-      const extracted = await extractFromPDF(base64, junctionData.map(j => j.name));
+      const extracted = await extractFromPDF(base64);
       setForm({ ...EMPTY_FORM, ...extracted });
       setCalcFlags(verifyCalculations({ ...EMPTY_FORM, ...extracted }));
       setStep("reviewing");
@@ -269,7 +276,7 @@ export default function App() {
       setStep("idle");
     }
     setLoading(false);
-  }, [junctionData]);
+  }, []);
 
   if (!loggedIn) return <Login onLogin={() => setLoggedIn(true)} />;
 
@@ -341,15 +348,16 @@ export default function App() {
   const totalJunctionLength = junctionData.reduce((s, j) => s + (parseFloat(j.length) || 0), 0);
 
   const saveJunctionEdit = () => {
-    if (!junctionEditForm.name.trim()) return;
-    setJunctionData(prev => prev.map((j, i) => i === junctionEdit ? { name: junctionEditForm.name.trim(), length: parseFloat(junctionEditForm.length) || 0 } : j));
+    if (!junctionEditForm.from.trim() || !junctionEditForm.to.trim()) return;
+    setJunctionData(prev => prev.map((j, i) => i === junctionEdit
+      ? { from: junctionEditForm.from.trim(), to: junctionEditForm.to.trim(), length: parseFloat(junctionEditForm.length) || 0 } : j));
     setJunctionEdit(null);
   };
   const deleteJunction = (idx) => setJunctionData(prev => prev.filter((_, i) => i !== idx));
   const addJunction = () => {
-    if (!newJunction.name.trim()) return;
-    setJunctionData(prev => [...prev, { name: newJunction.name.trim(), length: parseFloat(newJunction.length) || 0 }]);
-    setNewJunction({ name: "", length: "" });
+    if (!newJunction.from.trim() || !newJunction.to.trim()) return;
+    setJunctionData(prev => [...prev, { from: newJunction.from.trim(), to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0 }]);
+    setNewJunction({ from: "", to: "", length: "" });
   };
 
   const handleGenerateId = () => {
@@ -544,18 +552,21 @@ export default function App() {
                         {gFields.map((f, idx) => (
                           <div key={f.key} style={{ padding: "14px 20px", borderRight: (idx + 1) % 3 === 0 ? "none" : `1px solid ${colors.borderLight}`, borderBottom: idx < gFields.length - Math.ceil(gFields.length / 3) * (gFields.length > 3 ? 1 : 0) ? `1px solid ${colors.borderLight}` : "none" }}>
                             <label style={{ fontSize: 10.5, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, display: "block" }}>{f.label}</label>
-                            {f.type === "select" ? (
-                              <select
-                                value={form[f.key]}
-                                onChange={e => handleFormChange(f.key, e.target.value)}
-                                style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: form[f.key] ? colors.text : colors.textLight, background: colors.white, cursor: "pointer" }}
-                              >
-                                <option value="">— Select Junction —</option>
-                                {junctionData.map(j => (
-                                  <option key={j.name} value={j.name}>{j.name}</option>
-                                ))}
-                              </select>
-                            ) : (
+                            {f.type === "select" ? (() => {
+                              const opts = f.key === "junctionFrom"
+                                ? [...new Set(junctionData.map(j => j.from))].sort()
+                                : [...new Set(junctionData.map(j => j.to))].sort();
+                              return (
+                                <select
+                                  value={form[f.key]}
+                                  onChange={e => handleFormChange(f.key, e.target.value)}
+                                  style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: form[f.key] ? colors.text : colors.textLight, background: colors.white, cursor: "pointer" }}
+                                >
+                                  <option value="">— Select —</option>
+                                  {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                              );
+                            })() : (
                               <input
                                 value={form[f.key]}
                                 onChange={e => handleFormChange(f.key, e.target.value)}
@@ -609,50 +620,77 @@ export default function App() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr>
-                      {["#", "Junction", "Length (m)", "Actions"].map(h => (
-                        <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 16px", textAlign: h === "Length (m)" || h === "#" ? "right" : "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                      {["#", "From", "To", "Length (m)", "Completed Length (m)", "Balance Length (m)", "Actions"].map(h => (
+                        <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 16px", textAlign: ["Length (m)", "Completed Length (m)", "Balance Length (m)", "#"].includes(h) ? "right" : "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {junctionData.map((j, idx) => (
-                      <tr key={idx} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
-                        <td style={{ padding: "10px 16px", color: colors.textLight, fontWeight: 600, fontSize: 12, textAlign: "right", width: 50 }}>{idx + 1}</td>
-                        {junctionEdit === idx ? (
-                          <>
-                            <td style={{ padding: "6px 16px" }}>
-                              <input value={junctionEditForm.name} onChange={e => setJunctionEditForm(f => ({ ...f, name: e.target.value }))}
-                                style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }} />
-                            </td>
-                            <td style={{ padding: "6px 16px", width: 140 }}>
-                              <input type="number" value={junctionEditForm.length} onChange={e => setJunctionEditForm(f => ({ ...f, length: e.target.value }))}
-                                style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }} />
-                            </td>
-                            <td style={{ padding: "6px 16px", whiteSpace: "nowrap" }}>
-                              <button onClick={saveJunctionEdit} style={{ background: colors.navy, color: "white", border: "none", borderRadius: 4, padding: "5px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Save</button>
-                              <button onClick={() => setJunctionEdit(null)} style={{ background: "none", color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 4, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Cancel</button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td style={{ padding: "10px 16px", color: colors.text, fontWeight: 500 }}>{j.name}</td>
-                            <td style={{ padding: "10px 16px", color: colors.navy, fontWeight: 600, textAlign: "right" }}>{parseFloat(j.length).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</td>
-                            <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
-                              <button onClick={() => { setJunctionEdit(idx); setJunctionEditForm({ name: j.name, length: String(j.length) }); }}
-                                style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Edit</button>
-                              <button onClick={() => deleteJunction(idx)}
-                                style={{ background: "none", border: "1px solid #fca5a5", borderRadius: 4, color: "#dc2626", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Delete</button>
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                    ))}
+                    {junctionData.map((j, idx) => {
+                      const completedLength = ledger
+                        .filter(e => e.junctionFrom === j.from && e.junctionTo === j.to)
+                        .reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
+                      const balanceLength = (parseFloat(j.length) || 0) - completedLength;
+                      return (
+                        <tr key={idx} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
+                          <td style={{ padding: "10px 16px", color: colors.textLight, fontWeight: 600, fontSize: 12, textAlign: "right", width: 50 }}>{idx + 1}</td>
+                          {junctionEdit === idx ? (
+                            <>
+                              <td style={{ padding: "6px 16px" }}>
+                                <input value={junctionEditForm.from} onChange={e => setJunctionEditForm(f => ({ ...f, from: e.target.value }))}
+                                  placeholder="From"
+                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }} />
+                              </td>
+                              <td style={{ padding: "6px 16px" }}>
+                                <input value={junctionEditForm.to} onChange={e => setJunctionEditForm(f => ({ ...f, to: e.target.value }))}
+                                  placeholder="To"
+                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }} />
+                              </td>
+                              <td style={{ padding: "6px 16px", width: 140 }}>
+                                <input type="number" value={junctionEditForm.length} onChange={e => setJunctionEditForm(f => ({ ...f, length: e.target.value }))}
+                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }} />
+                              </td>
+                              <td style={{ padding: "6px 16px", textAlign: "right", color: colors.textLight }}>—</td>
+                              <td style={{ padding: "6px 16px", textAlign: "right", color: colors.textLight }}>—</td>
+                              <td style={{ padding: "6px 16px", whiteSpace: "nowrap" }}>
+                                <button onClick={saveJunctionEdit} style={{ background: colors.navy, color: "white", border: "none", borderRadius: 4, padding: "5px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Save</button>
+                                <button onClick={() => setJunctionEdit(null)} style={{ background: "none", color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 4, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Cancel</button>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td style={{ padding: "10px 16px", color: colors.text, fontWeight: 500 }}>{j.from}</td>
+                              <td style={{ padding: "10px 16px", color: colors.text, fontWeight: 500 }}>{j.to}</td>
+                              <td style={{ padding: "10px 16px", color: colors.navy, fontWeight: 600, textAlign: "right" }}>{parseFloat(j.length).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</td>
+                              <td style={{ padding: "10px 16px", color: completedLength > 0 ? colors.green : colors.textLight, fontWeight: completedLength > 0 ? 600 : 400, textAlign: "right" }}>
+                                {completedLength > 0 ? completedLength.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—"}
+                              </td>
+                              <td style={{ padding: "10px 16px", color: balanceLength < 0 ? "#dc2626" : balanceLength === 0 ? colors.textLight : colors.gold, fontWeight: 600, textAlign: "right" }}>
+                                {balanceLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                              </td>
+                              <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
+                                <button onClick={() => { setJunctionEdit(idx); setJunctionEditForm({ from: j.from, to: j.to, length: String(j.length) }); }}
+                                  style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Edit</button>
+                                <button onClick={() => deleteJunction(idx)}
+                                  style={{ background: "none", border: "1px solid #fca5a5", borderRadius: 4, color: "#dc2626", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Delete</button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
                     {/* Add new row */}
                     <tr style={{ borderTop: `2px solid ${colors.border}`, background: "#f9fafb" }}>
                       <td style={{ padding: "10px 16px", color: colors.textLight, fontWeight: 600, fontSize: 12, textAlign: "right" }}>+</td>
                       <td style={{ padding: "8px 16px" }}>
-                        <input value={newJunction.name} onChange={e => setNewJunction(f => ({ ...f, name: e.target.value }))}
-                          placeholder="Junction name (e.g. J-96 to PH-2)"
+                        <input value={newJunction.from} onChange={e => setNewJunction(f => ({ ...f, from: e.target.value }))}
+                          placeholder="From (e.g. J-96)"
+                          style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }}
+                          onKeyDown={e => e.key === "Enter" && addJunction()} />
+                      </td>
+                      <td style={{ padding: "8px 16px" }}>
+                        <input value={newJunction.to} onChange={e => setNewJunction(f => ({ ...f, to: e.target.value }))}
+                          placeholder="To (e.g. PH-2)"
                           style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }}
                           onKeyDown={e => e.key === "Enter" && addJunction()} />
                       </td>
@@ -662,9 +700,10 @@ export default function App() {
                           style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }}
                           onKeyDown={e => e.key === "Enter" && addJunction()} />
                       </td>
+                      <td colSpan={2} />
                       <td style={{ padding: "8px 16px" }}>
-                        <button onClick={addJunction} disabled={!newJunction.name.trim()}
-                          style={{ background: newJunction.name.trim() ? colors.gold : "#e8ecf6", color: newJunction.name.trim() ? "white" : colors.textLight, border: "none", borderRadius: 4, padding: "6px 16px", fontSize: 12, fontWeight: 600, cursor: newJunction.name.trim() ? "pointer" : "not-allowed", fontFamily: "'Source Sans 3', sans-serif" }}>
+                        <button onClick={addJunction} disabled={!newJunction.from.trim() || !newJunction.to.trim()}
+                          style={{ background: (newJunction.from.trim() && newJunction.to.trim()) ? colors.gold : "#e8ecf6", color: (newJunction.from.trim() && newJunction.to.trim()) ? "white" : colors.textLight, border: "none", borderRadius: 4, padding: "6px 16px", fontSize: 12, fontWeight: 600, cursor: (newJunction.from.trim() && newJunction.to.trim()) ? "pointer" : "not-allowed", fontFamily: "'Source Sans 3', sans-serif" }}>
                           Add Junction
                         </button>
                       </td>
@@ -672,8 +711,16 @@ export default function App() {
                   </tbody>
                   <tfoot>
                     <tr style={{ background: colors.formBg, borderTop: `1px solid ${colors.border}` }}>
-                      <td colSpan={2} style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, color: colors.textMid, textTransform: "uppercase", letterSpacing: 0.6 }}>Total Pipeline Length</td>
-                      <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 15, fontWeight: 600, color: colors.gold, textAlign: "right" }}>{totalJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })} m</td>
+                      <td colSpan={3} style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, color: colors.textMid, textTransform: "uppercase", letterSpacing: 0.6 }}>Totals</td>
+                      <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.gold, textAlign: "right" }}>
+                        {totalJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
+                      </td>
+                      <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.green, textAlign: "right" }}>
+                        {junctionData.reduce((s, j) => s + ledger.filter(e => e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
+                      </td>
+                      <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.navy, textAlign: "right" }}>
+                        {(totalJunctionLength - junctionData.reduce((s, j) => s + ledger.filter(e => e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
+                      </td>
                       <td />
                     </tr>
                   </tfoot>
@@ -737,7 +784,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Village", "Tehsil", "District", "Khasra No.", "Junction", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
+                            {["#", "Date", "Approval ID", "Village", "Tehsil", "District", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -756,7 +803,8 @@ export default function App() {
                               <td style={{ padding: "11px 14px" }}>{e.tehsil}</td>
                               <td style={{ padding: "11px 14px" }}>{e.district}</td>
                               <td style={{ padding: "11px 14px", color: colors.navy, fontWeight: 600 }}>{e.khasraNo}</td>
-                              <td style={{ padding: "11px 14px" }}>{e.junction}</td>
+                              <td style={{ padding: "11px 14px" }}>{e.junctionFrom}</td>
+                              <td style={{ padding: "11px 14px" }}>{e.junctionTo}</td>
                               <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>{e.chainageFrom}–{e.chainageTo}</td>
                               <td style={{ padding: "11px 14px" }}>{e.length}m</td>
                               <td style={{ padding: "11px 14px" }}>{e.row}m</td>
@@ -832,7 +880,7 @@ export default function App() {
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                               <thead>
                                 <tr>
-                                  {["#", "Date", "Village", "Tehsil", "District", "Khasra No.", "Junction", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC"].map(h => (
+                                  {["#", "Date", "Village", "Tehsil", "District", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC"].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
@@ -846,7 +894,8 @@ export default function App() {
                                     <td style={{ padding: "11px 14px" }}>{e.tehsil}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.district}</td>
                                     <td style={{ padding: "11px 14px", color: colors.navy, fontWeight: 600 }}>{e.khasraNo}</td>
-                                    <td style={{ padding: "11px 14px" }}>{e.junction}</td>
+                                    <td style={{ padding: "11px 14px" }}>{e.junctionFrom}</td>
+                                    <td style={{ padding: "11px 14px" }}>{e.junctionTo}</td>
                                     <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>{e.chainageFrom}–{e.chainageTo}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.length}m</td>
                                     <td style={{ padding: "11px 14px" }}>{e.row}m</td>
