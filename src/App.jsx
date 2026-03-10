@@ -52,6 +52,11 @@ const DEFAULT_JUNCTION_DATA = [
   { from: "PH-1",  to: "J-1",   length: 25.5    },
 ];
 
+const CLUSTERS = ["A", "B", "C", "D1", "D2", "E"];
+const DEFAULT_CLUSTER_JUNCTIONS = Object.fromEntries(
+  CLUSTERS.map(c => [c, DEFAULT_JUNCTION_DATA.map(j => ({ ...j }))])
+);
+
 const FIELDS = [
   { key: "cluster", label: "Cluster", group: "location", type: "select", options: ["A", "B", "C", "D1", "D2", "E"] },
   { key: "village", label: "Village", group: "location" },
@@ -216,16 +221,16 @@ export default function App() {
   const [ledgerSubTab, setLedgerSubTab] = useState("records"); // "records" | "pending"
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
-  const [junctionData, setJunctionData] = useState(() => {
+  const [clusterJunctions, setClusterJunctions] = useState(() => {
     try {
-      const s = localStorage.getItem("rvr_junctions");
-      if (!s) return DEFAULT_JUNCTION_DATA;
+      const s = localStorage.getItem("rvr_cluster_junctions");
+      if (!s) return DEFAULT_CLUSTER_JUNCTIONS;
       const parsed = JSON.parse(s);
-      // Migrate old { name, length } format to { from, to, length }
-      if (parsed.length > 0 && parsed[0].name !== undefined) return DEFAULT_JUNCTION_DATA;
+      if (typeof parsed !== "object" || Array.isArray(parsed)) return DEFAULT_CLUSTER_JUNCTIONS;
       return parsed;
-    } catch { return DEFAULT_JUNCTION_DATA; }
+    } catch { return DEFAULT_CLUSTER_JUNCTIONS; }
   });
+  const [selectedJunctionCluster, setSelectedJunctionCluster] = useState("A");
   const [junctionEdit, setJunctionEdit] = useState(null); // index of row being edited
   const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "" });
   const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "" });
@@ -234,8 +239,8 @@ export default function App() {
 
   // Persist junction data to localStorage
   useEffect(() => {
-    localStorage.setItem("rvr_junctions", JSON.stringify(junctionData));
-  }, [junctionData]);
+    localStorage.setItem("rvr_cluster_junctions", JSON.stringify(clusterJunctions));
+  }, [clusterJunctions]);
 
   // Load ledger from Supabase when user logs in
   useEffect(() => {
@@ -345,18 +350,22 @@ export default function App() {
   const pendingEntries = ledger.filter(e => !e.approvalId);
   const totalComp = ledger.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
   const totalArea = ledger.reduce((s, e) => s + (parseFloat(e.affectedArea) || 0), 0);
+  const junctionData = clusterJunctions[selectedJunctionCluster] || [];
   const totalJunctionLength = junctionData.reduce((s, j) => s + (parseFloat(j.length) || 0), 0);
+
+  const updateClusterJunctions = (cluster, updater) =>
+    setClusterJunctions(prev => ({ ...prev, [cluster]: updater(prev[cluster] || []) }));
 
   const saveJunctionEdit = () => {
     if (!junctionEditForm.from.trim() || !junctionEditForm.to.trim()) return;
-    setJunctionData(prev => prev.map((j, i) => i === junctionEdit
+    updateClusterJunctions(selectedJunctionCluster, arr => arr.map((j, i) => i === junctionEdit
       ? { from: junctionEditForm.from.trim(), to: junctionEditForm.to.trim(), length: parseFloat(junctionEditForm.length) || 0 } : j));
     setJunctionEdit(null);
   };
-  const deleteJunction = (idx) => setJunctionData(prev => prev.filter((_, i) => i !== idx));
+  const deleteJunction = (idx) => updateClusterJunctions(selectedJunctionCluster, arr => arr.filter((_, i) => i !== idx));
   const addJunction = () => {
     if (!newJunction.from.trim() || !newJunction.to.trim()) return;
-    setJunctionData(prev => [...prev, { from: newJunction.from.trim(), to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0 }]);
+    updateClusterJunctions(selectedJunctionCluster, arr => [...arr, { from: newJunction.from.trim(), to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0 }]);
     setNewJunction({ from: "", to: "", length: "" });
   };
 
@@ -553,11 +562,12 @@ export default function App() {
                           <div key={f.key} style={{ padding: "14px 20px", borderRight: (idx + 1) % 3 === 0 ? "none" : `1px solid ${colors.borderLight}`, borderBottom: idx < gFields.length - Math.ceil(gFields.length / 3) * (gFields.length > 3 ? 1 : 0) ? `1px solid ${colors.borderLight}` : "none" }}>
                             <label style={{ fontSize: 10.5, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, display: "block" }}>{f.label}</label>
                             {f.type === "select" ? (() => {
+                              const clusterJns = clusterJunctions[form.cluster] || [];
                               const opts = f.options
                                 ? f.options
                                 : f.key === "junctionFrom"
-                                  ? [...new Set(junctionData.map(j => j.from))].sort()
-                                  : [...new Set(junctionData.map(j => j.to))].sort();
+                                  ? [...new Set(clusterJns.map(j => j.from))].sort()
+                                  : [...new Set(clusterJns.map(j => j.to))].sort();
                               return (
                                 <select
                                   value={form[f.key]}
@@ -597,12 +607,25 @@ export default function App() {
         {/* ---- JUNCTIONS TAB ---- */}
         {activeTab === "junctions" && (
           <div>
+            {/* Cluster selector */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7 }}>Cluster</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                {CLUSTERS.map(c => (
+                  <button key={c} onClick={() => { setSelectedJunctionCluster(c); setJunctionEdit(null); setJunctionDeleteConfirm(null); }}
+                    style={{ padding: "6px 18px", borderRadius: 6, border: selectedJunctionCluster === c ? "none" : `1px solid ${colors.border}`, background: selectedJunctionCluster === c ? colors.navy : colors.white, color: selectedJunctionCluster === c ? "white" : colors.textMid, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Stats bar */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 22 }}>
               {[
                 { label: "Total Junctions", value: junctionData.length, color: colors.navy },
                 { label: "Total Pipeline Length", value: `${totalJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: colors.gold },
-                { label: "Avg. Section Length", value: junctionData.length ? `${(totalJunctionLength / junctionData.length).toFixed(1)} m` : "—", color: colors.green },
+                { label: "Balance Length", value: `${(totalJunctionLength - junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: colors.green },
               ].map(s => (
                 <div key={s.label} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "20px 24px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8 }}>{s.label}</div>
@@ -630,7 +653,7 @@ export default function App() {
                   <tbody>
                     {junctionData.map((j, idx) => {
                       const completedLength = ledger
-                        .filter(e => e.junctionFrom === j.from && e.junctionTo === j.to)
+                        .filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to)
                         .reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
                       const balanceLength = (parseFloat(j.length) || 0) - completedLength;
                       return (
@@ -728,10 +751,10 @@ export default function App() {
                         {totalJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
                       </td>
                       <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.green, textAlign: "right" }}>
-                        {junctionData.reduce((s, j) => s + ledger.filter(e => e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
+                        {junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
                       </td>
                       <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.navy, textAlign: "right" }}>
-                        {(totalJunctionLength - junctionData.reduce((s, j) => s + ledger.filter(e => e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
+                        {(totalJunctionLength - junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
                       </td>
                       <td />
                     </tr>
@@ -891,7 +914,7 @@ export default function App() {
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                               <thead>
                                 <tr>
-                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC"].map(h => (
+                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
@@ -919,6 +942,12 @@ export default function App() {
                                     <td style={{ padding: "11px 14px" }}>{e.bankName}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
+                                    <td style={{ padding: "11px 14px" }}>
+                                      <button onClick={() => handleEdit(e)}
+                                        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
+                                        Edit
+                                      </button>
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
