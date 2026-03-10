@@ -236,6 +236,7 @@ export default function App() {
   const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "" });
   const [junctionDeleteConfirm, setJunctionDeleteConfirm] = useState(null);
   const [selectedPending, setSelectedPending] = useState(new Set());
+  const [selectedLedgerCluster, setSelectedLedgerCluster] = useState("A");
   const [paymentEntry, setPaymentEntry] = useState(null); // _id of record being paid
   const [paymentInput, setPaymentInput] = useState("");
   const fileRef = useRef();
@@ -350,9 +351,9 @@ export default function App() {
   };
 
   const highWarnings = warnings.filter(w => w.severity === "high");
-  const pendingEntries = ledger.filter(e => !e.approvalId);
-  const totalComp = ledger.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
-  const totalArea = ledger.reduce((s, e) => s + (parseFloat(e.affectedArea) || 0), 0);
+  const clusterLedger = ledger.filter(e => e.cluster === selectedLedgerCluster);
+  const pendingEntries = clusterLedger.filter(e => !e.approvalId);
+  const totalComp = clusterLedger.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
   const junctionData = clusterJunctions[selectedJunctionCluster] || [];
   const totalJunctionLength = junctionData.reduce((s, j) => s + (parseFloat(j.length) || 0), 0);
 
@@ -784,6 +785,19 @@ export default function App() {
         {/* ---- LEDGER TAB ---- */}
         {activeTab === "ledger" && (
           <div>
+            {/* Cluster selector */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7 }}>Cluster</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                {CLUSTERS.map(c => (
+                  <button key={c} onClick={() => { setSelectedLedgerCluster(c); setSelectedPending(new Set()); setGeneratedApprovalId(null); }}
+                    style={{ padding: "6px 18px", borderRadius: 6, border: selectedLedgerCluster === c ? "none" : `1px solid ${colors.border}`, background: selectedLedgerCluster === c ? colors.navy : colors.white, color: selectedLedgerCluster === c ? "white" : colors.textMid, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {ledger.length === 0 ? (
               <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, textAlign: "center", padding: "80px 24px" }}>
                 <div style={{ fontSize: 38, marginBottom: 16 }}>📋</div>
@@ -796,7 +810,7 @@ export default function App() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 22 }}>
                   {[
                     { label: "Total Compensation", value: `Rs. ${totalComp.toLocaleString("en-IN")}`, color: colors.gold },
-                    { label: "Total Affected Area", value: `${totalArea.toFixed(4)} Ha`, color: colors.green },
+                    { label: "Completed Length", value: `${clusterLedger.reduce((s, e) => s + (parseFloat(e.length) || 0), 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: colors.green },
                   ].map(s => (
                     <div key={s.label} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "20px 24px" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8 }}>{s.label}</div>
@@ -815,7 +829,7 @@ export default function App() {
                           style={{ background: "none", border: "none", borderBottom: ledgerSubTab === id ? `2px solid ${colors.navy}` : "2px solid transparent", color: ledgerSubTab === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: ledgerSubTab === id ? 700 : 500, padding: "12px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 7 }}>
                           {label}
                           {id === "records" && (
-                            <span style={{ background: "#e8ecf6", color: "#3a4566", fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 10 }}>{ledger.length}</span>
+                            <span style={{ background: "#e8ecf6", color: "#3a4566", fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 10 }}>{clusterLedger.length}</span>
                           )}
                           {id === "pending" && (
                             <span style={{ background: pendingEntries.length > 0 ? "#fef3c7" : "#e8ecf6", color: pendingEntries.length > 0 ? "#92400e" : "#3a4566", fontSize: 11, fontWeight: 700, padding: "1px 8px", borderRadius: 10 }}>{pendingEntries.length}</span>
@@ -825,7 +839,7 @@ export default function App() {
                     </div>
                     {ledgerSubTab === "records" && (
                       <button className="btn-sec" style={{ padding: "5px 14px", background: colors.white, color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 5, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, cursor: "pointer" }}
-                        onClick={() => exportToCSV(ledger)}>↓ Export CSV</button>
+                        onClick={() => exportToCSV(clusterLedger)}>↓ Export CSV</button>
                     )}
                   </div>
 
@@ -841,7 +855,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {ledger.map((e, i) => (
+                          {clusterLedger.map((e, i) => (
                             <tr key={i} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
                               <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{e.srNo}</td>
                               <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
