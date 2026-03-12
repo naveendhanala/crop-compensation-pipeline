@@ -191,30 +191,72 @@ export default function App() {
   // Load junctions from Supabase when user logs in or switches to junctions tab
   useEffect(() => {
     if (!loggedIn) return;
-    supabase.from("junctions").select("*").order("id", { ascending: true })
-      .then(({ data, error }) => {
+    const fetchAllJunctions = async () => {
+      const pageSize = 1000;
+      let allData = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase.from("junctions").select("*").order("id", { ascending: true }).range(from, from + pageSize - 1);
         if (error) { console.error("Failed to load junctions:", error.message); return; }
-        if (data) {
-          const grouped = Object.fromEntries(CLUSTERS.map(c => [c, []]));
-          data.forEach(row => {
-            if (grouped[row.cluster]) grouped[row.cluster].push({ id: row.id, from: row.junction_from, to: row.junction_to, length: row.length, dia: row.pipe_dia ?? 0 });
-          });
-          setClusterJunctions(grouped);
-        }
+        if (!data || data.length === 0) break;
+        allData = [...allData, ...data];
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      const grouped = Object.fromEntries(CLUSTERS.map(c => [c, []]));
+      allData.forEach(row => {
+        if (grouped[row.cluster]) grouped[row.cluster].push({ id: row.id, from: row.junction_from, to: row.junction_to, length: row.length, dia: row.pipe_dia ?? 0 });
       });
+      setClusterJunctions(grouped);
+    };
+    fetchAllJunctions();
   }, [loggedIn, activeTab === "junctions"]);
 
   // Load ledger from Supabase when user logs in
   useEffect(() => {
     if (!loggedIn) return;
-    supabase
-      .from("ledger")
-      .select("*")
-      .order("sr_no", { ascending: true })
-      .then(({ data, error }) => {
+    const fetchAllLedger = async () => {
+      const pageSize = 1000;
+      let allData = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase.from("ledger").select("*").order("id", { ascending: true }).range(from, from + pageSize - 1);
         if (error) { console.error("Failed to load ledger:", error.message); return; }
-        if (data) setLedger(data.map(row => ({ _id: row.id, srNo: row.sr_no, date: row.date, approvalId: row.data.approvalId || null, ...row.data })));
-      });
+        if (!data || data.length === 0) break;
+        allData = [...allData, ...data];
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      setLedger(allData.map(row => ({
+        _id: row.id,
+        srNo: row.id,
+        date: row.date || '',
+        approvalId: row.approval_id || null,
+        cluster: row.cluster || '',
+        village: row.village || '',
+        khasraNo: row.khasra_no || '',
+        junctionFrom: row.junction_from || '',
+        junctionTo: row.junction_to || '',
+        chainageFrom: row.chainage_from || '',
+        chainageTo: row.chainage_to || '',
+        length: row.length != null ? String(row.length) : '',
+        dia: row.pipe_dia != null ? String(row.pipe_dia) : '',
+        row: row.row_width != null ? String(row.row_width) : '',
+        landOwnerName: row.land_owner_name || '',
+        farmerName: row.farmer_name || '',
+        crop: row.crop || '',
+        affectedArea: row.affected_area != null ? String(row.affected_area) : '',
+        mandiRate: row.mandi_rate != null ? String(row.mandi_rate) : '',
+        yield: row.yield != null ? String(row.yield) : '',
+        compensationAmount: row.compensation_amount != null ? String(row.compensation_amount) : '',
+        bankName: row.bank_name || '',
+        accountNo: row.account_no || '',
+        ifscCode: row.ifsc_code || '',
+        paymentDetails: row.payment_details || '',
+        documentPath: row.document_path || null,
+      })));
+    };
+    fetchAllLedger();
   }, [loggedIn]);
 
   const handleFile = useCallback(async (file) => {
@@ -280,7 +322,29 @@ export default function App() {
       }
       const { error: dbError } = await supabase
         .from("ledger")
-        .update({ data: { ...fields, approvalId: approvalId || null, ...(documentPath ? { documentPath } : {}) } })
+        .update({
+          cluster: fields.cluster || null,
+          village: fields.village || null,
+          khasra_no: fields.khasraNo || null,
+          junction_from: fields.junctionFrom || null,
+          junction_to: fields.junctionTo || null,
+          chainage_from: fields.chainageFrom || null,
+          chainage_to: fields.chainageTo || null,
+          length: parseFloat(fields.length) || null,
+          pipe_dia: parseFloat(fields.dia) || null,
+          row_width: parseFloat(fields.row) || null,
+          land_owner_name: fields.landOwnerName || null,
+          farmer_name: fields.farmerName || null,
+          crop: fields.crop || null,
+          affected_area: parseFloat(fields.affectedArea) || null,
+          mandi_rate: parseFloat(fields.mandiRate) || null,
+          yield: parseFloat(fields.yield) || null,
+          compensation_amount: parseFloat(fields.compensationAmount) || null,
+          bank_name: fields.bankName || null,
+          account_no: fields.accountNo || null,
+          ifsc_code: fields.ifscCode || null,
+          ...(documentPath ? { document_path: documentPath } : {}),
+        })
         .eq("id", _id);
       if (dbError) { setError(`Failed to update: ${dbError.message}`); return; }
       setLedger(prev => prev.map(e => e._id === _id ? { _id, srNo, date, approvalId: approvalId || null, ...fields, ...(documentPath ? { documentPath } : {}) } : e));
@@ -291,7 +355,31 @@ export default function App() {
       const { srNo: _, date: __, approvalId: _d, ...fields } = { ...data };
       const { data: inserted, error: dbError } = await supabase
         .from("ledger")
-        .insert({ date, data: { ...fields, approvalId: null } })
+        .insert({
+          date,
+          approval_id: null,
+          cluster: fields.cluster || null,
+          village: fields.village || null,
+          khasra_no: fields.khasraNo || null,
+          junction_from: fields.junctionFrom || null,
+          junction_to: fields.junctionTo || null,
+          chainage_from: fields.chainageFrom || null,
+          chainage_to: fields.chainageTo || null,
+          length: parseFloat(fields.length) || null,
+          pipe_dia: parseFloat(fields.dia) || null,
+          row_width: parseFloat(fields.row) || null,
+          land_owner_name: fields.landOwnerName || null,
+          farmer_name: fields.farmerName || null,
+          crop: fields.crop || null,
+          affected_area: parseFloat(fields.affectedArea) || null,
+          mandi_rate: parseFloat(fields.mandiRate) || null,
+          yield: parseFloat(fields.yield) || null,
+          compensation_amount: parseFloat(fields.compensationAmount) || null,
+          bank_name: fields.bankName || null,
+          account_no: fields.accountNo || null,
+          ifsc_code: fields.ifscCode || null,
+          payment_details: null,
+        })
         .select("id")
         .single();
       if (dbError) { setError(`Failed to save to database: ${dbError.message}`); return; }
@@ -307,7 +395,7 @@ export default function App() {
         else setError(`Document upload failed: ${storageError.message}`);
       }
       if (documentPath) {
-        await supabase.from("ledger").update({ data: { ...fields, approvalId: null, documentPath } }).eq("id", inserted.id);
+        await supabase.from("ledger").update({ document_path: documentPath }).eq("id", inserted.id);
       }
       setLedger(prev => [...prev, { ...data, _id: inserted.id, srNo, date, approvalId: null, ...(documentPath ? { documentPath } : {}) }]);
     }
@@ -390,7 +478,7 @@ export default function App() {
       const { _id, srNo, date, approvalId: _old, ...fields } = entry;
       const { error: dbError } = await supabase
         .from("ledger")
-        .update({ data: { ...fields, approvalId: generatedApprovalId } })
+        .update({ approval_id: generatedApprovalId })
         .eq("id", _id);
       if (dbError) { setError(`Failed to approve: ${dbError.message}`); setLoading(false); return; }
     }
@@ -408,7 +496,7 @@ export default function App() {
     const { _id, srNo, date, approvalId, ...fields } = entry;
     const { error: dbError } = await supabase
       .from("ledger")
-      .update({ data: { ...fields, approvalId, paymentDetails: paymentInput.trim() } })
+      .update({ payment_details: paymentInput.trim() })
       .eq("id", _id);
     if (dbError) { setError(`Failed to save payment: ${dbError.message}`); return; }
     setLedger(prev => prev.map(e => e._id === _id ? { ...e, paymentDetails: paymentInput.trim() } : e));
