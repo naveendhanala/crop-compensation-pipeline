@@ -188,7 +188,7 @@ export default function App() {
   const fileRef = useRef();
   const docFileRef = useRef();
 
-  // Load junctions from Supabase when user logs in
+  // Load junctions from Supabase when user logs in or switches to junctions tab
   useEffect(() => {
     if (!loggedIn) return;
     supabase.from("junctions").select("*").order("id", { ascending: true })
@@ -202,7 +202,7 @@ export default function App() {
           setClusterJunctions(grouped);
         }
       });
-  }, [loggedIn]);
+  }, [loggedIn, activeTab === "junctions"]);
 
   // Load ledger from Supabase when user logs in
   useEffect(() => {
