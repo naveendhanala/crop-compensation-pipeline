@@ -3,59 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import Login from "./Login";
 import { supabase } from "./supabaseClient";
 
-const DEFAULT_JUNCTION_DATA = [
-  { from: "J-1",   to: "J-3",   length: 1684.9  },
-  { from: "J-1",   to: "J-2",   length: 353.61  },
-  { from: "J-10",  to: "J-13",  length: 738.97  },
-  { from: "J-102", to: "J-111", length: 213.2   },
-  { from: "J-11",  to: "J-23",  length: 2371.9  },
-  { from: "J-111", to: "J-122", length: 792.7   },
-  { from: "J-121", to: "J-157", length: 1035.3  },
-  { from: "J-122", to: "J-130", length: 207.35  },
-  { from: "J-13",  to: "J-22",  length: 2764.1  },
-  { from: "J-130", to: "J-139", length: 398.07  },
-  { from: "J-15",  to: "J-18",  length: 253.14  },
-  { from: "J-157", to: "J-189", length: 1088.6  },
-  { from: "J-18",  to: "J-20",  length: 320.86  },
-  { from: "J-189", to: "J-220", length: 665.09  },
-  { from: "J-2",   to: "J-6",   length: 551.73  },
-  { from: "J-20",  to: "J-25",  length: 566.13  },
-  { from: "J-22",  to: "J-36",  length: 2035.2  },
-  { from: "J-220", to: "J-233", length: 607.37  },
-  { from: "J-23",  to: "J-34",  length: 2288.5  },
-  { from: "J-23",  to: "J-27",  length: 188.85  },
-  { from: "J-233", to: "J-247", length: 688.81  },
-  { from: "J-247", to: "J-254", length: 666.91  },
-  { from: "J-254", to: "J-261", length: 554.1   },
-  { from: "J-3",   to: "J-10",  length: 2118.9  },
-  { from: "J-3",   to: "J-7",   length: 1185.8  },
-  { from: "J-34",  to: "J-65",  length: 3725.9  },
-  { from: "J-34",  to: "J-35",  length: 36.21   },
-  { from: "J-35",  to: "J-44",  length: 282.68  },
-  { from: "J-36",  to: "J-51",  length: 803.64  },
-  { from: "J-36",  to: "J-47",  length: 266.71  },
-  { from: "J-51",  to: "J-62",  length: 1234.1  },
-  { from: "J-51",  to: "J-54",  length: 399.61  },
-  { from: "J-6",   to: "J-15",  length: 739.98  },
-  { from: "J-62",  to: "J-67",  length: 513.25  },
-  { from: "J-65",  to: "J-70",  length: 631.06  },
-  { from: "J-67",  to: "J-77",  length: 989.77  },
-  { from: "J-7",   to: "J-11",  length: 798.95  },
-  { from: "J-70",  to: "J-74",  length: 541.26  },
-  { from: "J-74",  to: "J-79",  length: 681.2   },
-  { from: "J-77",  to: "J-95",  length: 920.63  },
-  { from: "J-79",  to: "J-85",  length: 142.43  },
-  { from: "J-85",  to: "J-90",  length: 252.82  },
-  { from: "J-90",  to: "J-96",  length: 263.48  },
-  { from: "J-95",  to: "J-121", length: 872.79  },
-  { from: "J-96",  to: "J-102", length: 492.13  },
-  { from: "PH-1",  to: "J-1",   length: 25.5    },
-];
-
 const CLUSTERS = ["A", "B", "C", "D1", "D2", "E"];
-const DEFAULT_CLUSTER_JUNCTIONS = Object.fromEntries(
-  CLUSTERS.map(c => [c, DEFAULT_JUNCTION_DATA.map(j => ({ ...j }))])
-);
 
 const FIELDS = [
   { key: "cluster", label: "Cluster", group: "location", type: "select", options: ["A", "B", "C", "D1", "D2", "E"] },
@@ -193,6 +141,11 @@ function exportToCSV(ledger) {
   a.click();
 }
 
+function getDocumentUrl(path) {
+  const { data } = supabase.storage.from('entry-documents').getPublicUrl(path);
+  return data.publicUrl;
+}
+
 function exportToExcel(entries, approvalId) {
   const headers = ["Approval ID", "Sr.No.", "Date", ...FIELDS.map(f => f.label)];
   const rows = entries.map(e => [approvalId, e.srNo, e.date, ...FIELDS.map(f => e[f.key] || "")]);
@@ -221,30 +174,35 @@ export default function App() {
   const [ledgerSubTab, setLedgerSubTab] = useState("records"); // "records" | "pending"
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
-  const [clusterJunctions, setClusterJunctions] = useState(() => {
-    try {
-      const s = localStorage.getItem("rvr_cluster_junctions");
-      if (!s) return DEFAULT_CLUSTER_JUNCTIONS;
-      const parsed = JSON.parse(s);
-      if (typeof parsed !== "object" || Array.isArray(parsed)) return DEFAULT_CLUSTER_JUNCTIONS;
-      return parsed;
-    } catch { return DEFAULT_CLUSTER_JUNCTIONS; }
-  });
+  const [clusterJunctions, setClusterJunctions] = useState({});
   const [selectedJunctionCluster, setSelectedJunctionCluster] = useState("A");
   const [junctionEdit, setJunctionEdit] = useState(null); // index of row being edited
-  const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "" });
-  const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "" });
+  const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "", dia: "" });
+  const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "", dia: "" });
   const [junctionDeleteConfirm, setJunctionDeleteConfirm] = useState(null);
   const [selectedPending, setSelectedPending] = useState(new Set());
   const [selectedLedgerCluster, setSelectedLedgerCluster] = useState("A");
   const [paymentEntry, setPaymentEntry] = useState(null); // _id of record being paid
   const [paymentInput, setPaymentInput] = useState("");
+  const [uploadFile, setUploadFile] = useState(null); // document to attach to entry
   const fileRef = useRef();
+  const docFileRef = useRef();
 
-  // Persist junction data to localStorage
+  // Load junctions from Supabase when user logs in
   useEffect(() => {
-    localStorage.setItem("rvr_cluster_junctions", JSON.stringify(clusterJunctions));
-  }, [clusterJunctions]);
+    if (!loggedIn) return;
+    supabase.from("junctions").select("*").order("id", { ascending: true })
+      .then(({ data, error }) => {
+        if (error) { console.error("Failed to load junctions:", error.message); return; }
+        if (data) {
+          const grouped = Object.fromEntries(CLUSTERS.map(c => [c, []]));
+          data.forEach(row => {
+            if (grouped[row.cluster]) grouped[row.cluster].push({ id: row.id, from: row.junction_from, to: row.junction_to, length: row.length, dia: row.pipe_dia ?? 0 });
+          });
+          setClusterJunctions(grouped);
+        }
+      });
+  }, [loggedIn]);
 
   // Load ledger from Supabase when user logs in
   useEffect(() => {
@@ -272,6 +230,7 @@ export default function App() {
       const extracted = await extractFromPDF(base64);
       setForm({ ...EMPTY_FORM, ...extracted });
       setCalcFlags(verifyCalculations({ ...EMPTY_FORM, ...extracted }));
+      setUploadFile(file);
       setStep("reviewing");
     } catch (e) {
       const msg = e?.message || String(e);
@@ -309,27 +268,52 @@ export default function App() {
       // UPDATE existing entry — preserve approvalId
       const { _id, srNo, date, approvalId } = editingEntry;
       const { _id: _a, srNo: _b, date: _c, approvalId: _d, ...fields } = { ...data };
+      let documentPath = editingEntry.documentPath || null;
+      if (uploadFile) {
+        const ext = uploadFile.name.split('.').pop();
+        const storagePath = `${_id}/document.${ext}`;
+        const { error: storageError } = await supabase.storage
+          .from('entry-documents')
+          .upload(storagePath, uploadFile, { upsert: true });
+        if (!storageError) documentPath = storagePath;
+        else setError(`Document upload failed: ${storageError.message}`);
+      }
       const { error: dbError } = await supabase
         .from("ledger")
-        .update({ data: { ...fields, approvalId: approvalId || null } })
+        .update({ data: { ...fields, approvalId: approvalId || null, ...(documentPath ? { documentPath } : {}) } })
         .eq("id", _id);
       if (dbError) { setError(`Failed to update: ${dbError.message}`); return; }
-      setLedger(prev => prev.map(e => e._id === _id ? { _id, srNo, date, approvalId: approvalId || null, ...fields } : e));
+      setLedger(prev => prev.map(e => e._id === _id ? { _id, srNo, date, approvalId: approvalId || null, ...fields, ...(documentPath ? { documentPath } : {}) } : e));
       setEditingEntry(null);
     } else {
       // INSERT new entry — no approvalId yet (pending)
-      const srNo = ledger.length + 1;
       const date = new Date().toLocaleDateString("en-IN");
       const { srNo: _, date: __, approvalId: _d, ...fields } = { ...data };
       const { data: inserted, error: dbError } = await supabase
         .from("ledger")
-        .insert({ sr_no: srNo, date, data: { ...fields, approvalId: null } })
+        .insert({ date, data: { ...fields, approvalId: null } })
         .select("id")
         .single();
       if (dbError) { setError(`Failed to save to database: ${dbError.message}`); return; }
-      setLedger(prev => [...prev, { ...data, _id: inserted.id, srNo, date, approvalId: null }]);
+      const srNo = inserted.id;
+      let documentPath = null;
+      if (uploadFile) {
+        const ext = uploadFile.name.split('.').pop();
+        const storagePath = `${inserted.id}/document.${ext}`;
+        const { error: storageError } = await supabase.storage
+          .from('entry-documents')
+          .upload(storagePath, uploadFile, { upsert: true });
+        if (!storageError) documentPath = storagePath;
+        else setError(`Document upload failed: ${storageError.message}`);
+      }
+      if (documentPath) {
+        await supabase.from("ledger").update({ data: { ...fields, approvalId: null, documentPath } }).eq("id", inserted.id);
+      }
+      setLedger(prev => [...prev, { ...data, _id: inserted.id, srNo, date, approvalId: null, ...(documentPath ? { documentPath } : {}) }]);
     }
     setForm(EMPTY_FORM); setCalcFlags([]); setWarnings([]); setPendingEntry(null);
+    setUploadFile(null);
+    if (docFileRef.current) docFileRef.current.value = "";
     setStep("saved");
     setTimeout(() => { setStep("idle"); if (fileRef.current) fileRef.current.value = ""; }, 2500);
   };
@@ -348,6 +332,7 @@ export default function App() {
     setEditingEntry(null);
     setForm(EMPTY_FORM);
     setCalcFlags([]);
+    setUploadFile(null);
     setStep("idle");
     setActiveTab("ledger");
   };
@@ -362,16 +347,32 @@ export default function App() {
   const updateClusterJunctions = (cluster, updater) =>
     setClusterJunctions(prev => ({ ...prev, [cluster]: updater(prev[cluster] || []) }));
 
-  const saveJunctionEdit = () => {
+  const saveJunctionEdit = async () => {
     if (!junctionEditForm.from.trim() || !junctionEditForm.to.trim()) return;
-    updateClusterJunctions(selectedJunctionCluster, arr => arr.map((j, i) => i === junctionEdit
-      ? { from: junctionEditForm.from.trim(), to: junctionEditForm.to.trim(), length: parseFloat(junctionEditForm.length) || 0 } : j));
+    const junction = (clusterJunctions[selectedJunctionCluster] || [])[junctionEdit];
+    if (!junction?.id) return;
+    const updated = { from: junctionEditForm.from.trim(), to: junctionEditForm.to.trim(), length: parseFloat(junctionEditForm.length) || 0, dia: parseFloat(junctionEditForm.dia) || 0 };
+    const { error } = await supabase.from("junctions")
+      .update({ junction_from: updated.from, junction_to: updated.to, length: updated.length, pipe_dia: updated.dia })
+      .eq("id", junction.id);
+    if (error) { console.error("Failed to update junction:", error.message); return; }
+    updateClusterJunctions(selectedJunctionCluster, arr => arr.map((j, i) => i === junctionEdit ? { ...j, ...updated } : j));
     setJunctionEdit(null);
   };
-  const deleteJunction = (idx) => updateClusterJunctions(selectedJunctionCluster, arr => arr.filter((_, i) => i !== idx));
-  const addJunction = () => {
+  const deleteJunction = async (idx) => {
+    const junction = (clusterJunctions[selectedJunctionCluster] || [])[idx];
+    if (!junction?.id) return;
+    const { error } = await supabase.from("junctions").delete().eq("id", junction.id);
+    if (error) { console.error("Failed to delete junction:", error.message); return; }
+    updateClusterJunctions(selectedJunctionCluster, arr => arr.filter((_, i) => i !== idx));
+  };
+  const addJunction = async () => {
     if (!newJunction.from.trim() || !newJunction.to.trim()) return;
-    updateClusterJunctions(selectedJunctionCluster, arr => [...arr, { from: newJunction.from.trim(), to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0 }]);
+    const { data: inserted, error } = await supabase.from("junctions")
+      .insert({ cluster: selectedJunctionCluster, junction_from: newJunction.from.trim(), junction_to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0, pipe_dia: parseFloat(newJunction.dia) || 0 })
+      .select("id").single();
+    if (error) { console.error("Failed to add junction:", error.message); return; }
+    updateClusterJunctions(selectedJunctionCluster, arr => [...arr, { id: inserted.id, from: newJunction.from.trim(), to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0, dia: parseFloat(newJunction.dia) || 0 }]);
     setNewJunction({ from: "", to: "", length: "" });
   };
 
@@ -612,6 +613,37 @@ export default function App() {
                   );
                 })}
 
+                {/* Document Attachment */}
+                <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, marginBottom: 14, overflow: "hidden" }}>
+                  <div style={{ background: colors.formBg, borderBottom: `1px solid ${colors.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 9 }}>
+                    <span style={{ fontSize: 14 }}>📎</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#3a4566", textTransform: "uppercase", letterSpacing: 0.8 }}>Supporting Document</span>
+                  </div>
+                  <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    {uploadFile ? (
+                      <>
+                        <span style={{ fontSize: 13, color: colors.text }}>📄 {uploadFile.name}</span>
+                        <button onClick={() => { setUploadFile(null); if (docFileRef.current) docFileRef.current.value = ""; }}
+                          style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, fontSize: 12, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Remove</button>
+                        <span style={{ fontSize: 12, color: colors.textLight }}>|</span>
+                      </>
+                    ) : editingEntry?.documentPath ? (
+                      <>
+                        <a href={getDocumentUrl(editingEntry.documentPath)} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 13, color: colors.navy, fontWeight: 600, textDecoration: "none" }}>📄 View Current Document</a>
+                        <span style={{ fontSize: 12, color: colors.textLight }}>·</span>
+                      </>
+                    ) : null}
+                    <button onClick={() => docFileRef.current.click()}
+                      style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 5, color: colors.navy, fontSize: 13, fontWeight: 600, padding: "7px 16px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>
+                      {uploadFile ? "Replace" : editingEntry?.documentPath ? "Upload New" : "Attach Document"}
+                    </button>
+                    <input ref={docFileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }}
+                      onChange={e => e.target.files[0] && setUploadFile(e.target.files[0])} />
+                    <span style={{ fontSize: 12, color: colors.textLight }}>PDF, JPG, PNG accepted</span>
+                  </div>
+                </div>
+
                 <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
                   <button className="btn-sec" style={{ padding: "11px 20px", background: colors.white, color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, cursor: "pointer" }}
                     onClick={editingEntry ? cancelEdit : () => { setStep("idle"); setForm(EMPTY_FORM); setCalcFlags([]); }}>Cancel</button>
@@ -664,8 +696,8 @@ export default function App() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr>
-                      {["#", "From", "To", "Length (m)", "Completed Length (m)", "Balance Length (m)", "Actions"].map(h => (
-                        <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 16px", textAlign: ["Length (m)", "Completed Length (m)", "Balance Length (m)", "#"].includes(h) ? "right" : "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                      {["#", "From", "To", "Dia of Pipe (mm)", "Length (m)", "Completed Length (m)", "Balance Length (m)", "Actions"].map(h => (
+                        <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 16px", textAlign: ["Dia of Pipe (mm)", "Length (m)", "Completed Length (m)", "Balance Length (m)", "#"].includes(h) ? "right" : "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -690,6 +722,11 @@ export default function App() {
                                   placeholder="To"
                                   style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }} />
                               </td>
+                              <td style={{ padding: "6px 16px", width: 120 }}>
+                                <input type="number" value={junctionEditForm.dia} onChange={e => setJunctionEditForm(f => ({ ...f, dia: e.target.value }))}
+                                  placeholder="Dia (mm)"
+                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }} />
+                              </td>
                               <td style={{ padding: "6px 16px", width: 140 }}>
                                 <input type="number" value={junctionEditForm.length} onChange={e => setJunctionEditForm(f => ({ ...f, length: e.target.value }))}
                                   style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }} />
@@ -705,6 +742,7 @@ export default function App() {
                             <>
                               <td style={{ padding: "10px 16px", color: colors.text, fontWeight: 500 }}>{j.from}</td>
                               <td style={{ padding: "10px 16px", color: colors.text, fontWeight: 500 }}>{j.to}</td>
+                              <td style={{ padding: "10px 16px", color: colors.navy, fontWeight: 600, textAlign: "right" }}>{j.dia ? parseFloat(j.dia).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—"}</td>
                               <td style={{ padding: "10px 16px", color: colors.navy, fontWeight: 600, textAlign: "right" }}>{parseFloat(j.length).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</td>
                               <td style={{ padding: "10px 16px", color: completedLength > 0 ? colors.green : colors.textLight, fontWeight: completedLength > 0 ? 600 : 400, textAlign: "right" }}>
                                 {completedLength > 0 ? completedLength.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—"}
@@ -713,7 +751,7 @@ export default function App() {
                                 {balanceLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
                               </td>
                               <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
-                                <button onClick={() => { setJunctionEdit(idx); setJunctionEditForm({ from: j.from, to: j.to, length: String(j.length) }); }}
+                                <button onClick={() => { setJunctionEdit(idx); setJunctionEditForm({ from: j.from, to: j.to, length: String(j.length), dia: String(j.dia ?? "") }); }}
                                   style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Edit</button>
                                 {junctionDeleteConfirm === idx ? (
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -748,6 +786,12 @@ export default function App() {
                           style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }}
                           onKeyDown={e => e.key === "Enter" && addJunction()} />
                       </td>
+                      <td style={{ padding: "8px 16px", width: 120 }}>
+                        <input type="number" value={newJunction.dia} onChange={e => setNewJunction(f => ({ ...f, dia: e.target.value }))}
+                          placeholder="Dia (mm)"
+                          style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }}
+                          onKeyDown={e => e.key === "Enter" && addJunction()} />
+                      </td>
                       <td style={{ padding: "8px 16px", width: 140 }}>
                         <input type="number" value={newJunction.length} onChange={e => setNewJunction(f => ({ ...f, length: e.target.value }))}
                           placeholder="Length in m"
@@ -765,7 +809,7 @@ export default function App() {
                   </tbody>
                   <tfoot>
                     <tr style={{ background: colors.formBg, borderTop: `1px solid ${colors.border}` }}>
-                      <td colSpan={3} style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, color: colors.textMid, textTransform: "uppercase", letterSpacing: 0.6 }}>Totals</td>
+                      <td colSpan={4} style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, color: colors.textMid, textTransform: "uppercase", letterSpacing: 0.6 }}>Totals</td>
                       <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.gold, textAlign: "right" }}>
                         {totalJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
                       </td>
@@ -851,7 +895,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", ""].map(h => (
+                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", ""].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -890,6 +934,11 @@ export default function App() {
                               <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                               <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
                               <td style={{ padding: "11px 14px", maxWidth: 200, color: e.paymentDetails ? colors.text : colors.textLight, fontStyle: e.paymentDetails ? "normal" : "italic" }}>{e.paymentDetails || "—"}</td>
+                              <td style={{ padding: "11px 14px" }}>
+                                {e.documentPath
+                                  ? <a href={getDocumentUrl(e.documentPath)} target="_blank" rel="noopener noreferrer" style={{ color: colors.navy, fontWeight: 600, fontSize: 12, textDecoration: "none" }}>📎 View</a>
+                                  : <span style={{ color: colors.textLight, fontSize: 12 }}>—</span>}
+                              </td>
                               <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                 <button onClick={() => handleEdit(e)}
                                   style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
@@ -982,7 +1031,7 @@ export default function App() {
                                       onChange={ev => setSelectedPending(ev.target.checked ? new Set(pendingEntries.map(e => e._id)) : new Set())}
                                       style={{ cursor: "pointer" }} />
                                   </th>
-                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", ""].map(h => (
+                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", "Document", ""].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
@@ -1015,6 +1064,11 @@ export default function App() {
                                     <td style={{ padding: "11px 14px" }}>{e.bankName}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
+                                    <td style={{ padding: "11px 14px" }}>
+                                      {e.documentPath
+                                        ? <a href={getDocumentUrl(e.documentPath)} target="_blank" rel="noopener noreferrer" style={{ color: colors.navy, fontWeight: 600, fontSize: 12, textDecoration: "none" }}>📎 View</a>
+                                        : <span style={{ color: colors.textLight, fontSize: 12 }}>—</span>}
+                                    </td>
                                     <td style={{ padding: "11px 14px" }}>
                                       <button onClick={() => handleEdit(e)}
                                         style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
