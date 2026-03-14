@@ -116,17 +116,54 @@ const anthropic = new Anthropic({
 async function extractFromPDF(base64Data) {
   const response = await anthropic.messages.create({
     model: "claude-opus-4-6",
-    max_tokens: 1024,
+    max_tokens: 2048,
     messages: [{
       role: "user",
       content: [
         { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64Data } },
-        { type: "text", text: `Extract the following fields from this crop compensation document. Return ONLY a valid JSON object with no preamble, explanation, or markdown. Use empty string for any field not found.\n\nFields: village, cluster (must be one of: A, B, C, D1, D2, E), khasraNo, junctionFrom (the starting node of the pipeline section, e.g. "J-1"), junctionTo (the ending node of the pipeline section, e.g. "J-3"), chainageFrom (numeric), chainageTo (numeric), length (meters numeric), dia (MM numeric), row (meters numeric), landOwnerName, farmerName (lessee who receives compensation), crop, affectedArea (hectares numeric), mandiRate (per quintal numeric), yield (quintals/hectare numeric), compensationAmount (total amount numeric), bankName, accountNo, ifscCode\n\nReturn only the JSON object.` }
+        { type: "text", text: `This crop compensation document has two key pages:
+- Annexure-1 (summary sheet): contains land owner name, bank details, crop, mandi rate, yield per hectare, and the TOTAL compensation amount for all segments combined.
+- Annexure-2 (measurement table): contains one row per pipeline segment, each with its own Khasra No., junction range (From/To), chainage range (From/To), length in metres, pipe diameter (MM), ROW width (m), area in SQM, and affected area in hectares.
+
+Extract one entry per row in the Annexure-2 measurement table. Return ONLY a valid JSON object with no preamble or markdown:
+
+{
+  "pdfTotalAmount": <total compensation amount numeric from Annexure-1>,
+  "entries": [
+    {
+      "village": "",
+      "cluster": "<one of: A, B, C, D1, D2, E>",
+      "khasraNo": "<from this Annexure-2 row>",
+      "junctionFrom": "<from this row, e.g. J-67>",
+      "junctionTo": "<from this row, e.g. J-71>",
+      "chainageFrom": <numeric from this row>,
+      "chainageTo": <numeric from this row>,
+      "length": <metres numeric from this row>,
+      "dia": <MM numeric from this row>,
+      "row": <ROW metres numeric from this row>,
+      "landOwnerName": "<from Annexure-1>",
+      "farmerName": "<lessee who receives compensation, from Annexure-1>",
+      "crop": "<from Annexure-1>",
+      "affectedArea": <hectares numeric — THIS ROW'S affected area from Annexure-2, NOT the Annexure-1 total>,
+      "mandiRate": <per quintal numeric from Annexure-1>,
+      "yield": <quintals per hectare numeric from Annexure-1>,
+      "bankName": "<from Annexure-1>",
+      "accountNo": "<from Annexure-1>",
+      "ifscCode": "<from Annexure-1>"
+    }
+  ]
+}
+
+Use empty string for any text field not found. Use 0 for any numeric field not found. Return only the JSON object.` }
       ]
     }]
   });
   const text = response.content.map(b => b.type === "text" ? b.text : "").join("");
-  return JSON.parse(text.replace(/```json|```/g, "").trim());
+  const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+  // Normalise: accept both { pdfTotalAmount, entries } and a bare array
+  if (Array.isArray(parsed)) return { pdfTotalAmount: null, entries: parsed };
+  if (parsed.entries) return parsed;
+  return { pdfTotalAmount: null, entries: [parsed] };
 }
 
 function exportToCSV(ledger) {
@@ -185,6 +222,11 @@ export default function App() {
   const [paymentEntry, setPaymentEntry] = useState(null); // _id of record being paid
   const [paymentInput, setPaymentInput] = useState("");
   const [uploadFile, setUploadFile] = useState(null); // document to attach to entry
+  // Batch extraction state
+  const [extractedEntries, setExtractedEntries] = useState([]); // all rows extracted from PDF
+  const [currentEntryIndex, setCurrentEntryIndex] = useState(0); // which one is being reviewed
+  const [batchEntries, setBatchEntries] = useState([]); // confirmed entries not yet committed to DB
+  const [batchPdfTotal, setBatchPdfTotal] = useState(null); // total compensation from PDF Annexure-1
   const fileRef = useRef();
   const docFileRef = useRef();
 
@@ -269,9 +311,23 @@ export default function App() {
         r.onerror = () => rej(new Error("Failed"));
         r.readAsDataURL(file);
       });
-      const extracted = await extractFromPDF(base64);
-      setForm({ ...EMPTY_FORM, ...extracted });
-      setCalcFlags(verifyCalculations({ ...EMPTY_FORM, ...extracted }));
+      const result = await extractFromPDF(base64);
+      const rawEntries = result.entries || [];
+      const pdfTotal = result.pdfTotalAmount || null;
+      // Calculate compensationAmount per entry from formula: affectedArea × mandiRate × yield
+      const enriched = rawEntries.map(e => {
+        const area = parseFloat(e.affectedArea) || 0;
+        const mandi = parseFloat(e.mandiRate) || 0;
+        const yld = parseFloat(e.yield) || 0;
+        const calcComp = area && mandi && yld ? parseFloat((area * mandi * yld).toFixed(2)) : 0;
+        return { ...EMPTY_FORM, ...e, compensationAmount: calcComp ? String(calcComp) : "" };
+      });
+      setExtractedEntries(enriched);
+      setBatchPdfTotal(pdfTotal);
+      setBatchEntries([]);
+      setCurrentEntryIndex(0);
+      setForm(enriched[0] || EMPTY_FORM);
+      setCalcFlags(verifyCalculations(enriched[0] || EMPTY_FORM));
       setUploadFile(file);
       setStep("reviewing");
     } catch (e) {
@@ -297,12 +353,40 @@ export default function App() {
   };
 
   const handleSave = () => {
-    const ledgerToCheck = editingEntry ? ledger.filter(e => e.srNo !== editingEntry.srNo) : ledger;
-    const dups = checkDuplicates(form, ledgerToCheck);
-    const cFlags = calcFlags.map(f => ({ ...f, severity: "medium" }));
-    const all = [...dups, ...cFlags];
-    if (all.length > 0) { setWarnings(all); setPendingEntry(form); setStep("warning"); }
-    else commitEntry(form);
+    if (editingEntry) {
+      // Edit mode: check against ledger minus the entry being edited
+      const ledgerToCheck = ledger.filter(e => e.srNo !== editingEntry.srNo);
+      const dups = checkDuplicates(form, ledgerToCheck);
+      const cFlags = calcFlags.map(f => ({ ...f, severity: "medium" }));
+      const all = [...dups, ...cFlags];
+      if (all.length > 0) { setWarnings(all); setPendingEntry(form); setStep("warning"); }
+      else commitEntry(form);
+    } else {
+      // Batch new-entry mode: check against existing ledger + already-confirmed batch entries
+      const dups = checkDuplicates(form, [...ledger, ...batchEntries]);
+      const cFlags = calcFlags.map(f => ({ ...f, severity: "medium" }));
+      const all = [...dups, ...cFlags];
+      if (all.length > 0) { setWarnings(all); setPendingEntry(form); setStep("warning"); }
+      else confirmBatchEntry(form);
+    }
+  };
+
+  const confirmBatchEntry = (data) => {
+    const newBatch = [...batchEntries, data];
+    setBatchEntries(newBatch);
+    setWarnings([]);
+    setPendingEntry(null);
+    if (currentEntryIndex < extractedEntries.length - 1) {
+      // Advance to next entry
+      const nextIdx = currentEntryIndex + 1;
+      setCurrentEntryIndex(nextIdx);
+      setForm(extractedEntries[nextIdx]);
+      setCalcFlags(verifyCalculations(extractedEntries[nextIdx]));
+      setStep("reviewing");
+    } else {
+      // All entries confirmed — go to summary
+      setStep("batch-summary");
+    }
   };
 
   const commitEntry = async (data) => {
@@ -402,6 +486,78 @@ export default function App() {
     setForm(EMPTY_FORM); setCalcFlags([]); setWarnings([]); setPendingEntry(null);
     setUploadFile(null);
     if (docFileRef.current) docFileRef.current.value = "";
+    setStep("saved");
+    setTimeout(() => { setStep("idle"); if (fileRef.current) fileRef.current.value = ""; }, 2500);
+  };
+
+  const commitAllBatchEntries = async () => {
+    setLoading(true);
+    setError("");
+    const date = new Date().toLocaleDateString("en-IN");
+
+    // Upload document once for the whole batch, using a timestamp-based folder
+    let sharedDocPath = null;
+    if (uploadFile) {
+      const ext = uploadFile.name.split('.').pop();
+      const batchFolder = `batch_${Date.now()}`;
+      const storagePath = `${batchFolder}/document.${ext}`;
+      const { error: storageError } = await supabase.storage
+        .from('entry-documents')
+        .upload(storagePath, uploadFile, { upsert: true });
+      if (!storageError) sharedDocPath = storagePath;
+      else setError(`Document upload failed: ${storageError.message}`);
+    }
+
+    const newLedgerEntries = [];
+    for (const data of batchEntries) {
+      const { srNo: _, date: __, approvalId: _d, ...fields } = { ...data };
+      const { data: inserted, error: dbError } = await supabase
+        .from("ledger")
+        .insert({
+          date,
+          approval_id: null,
+          cluster: fields.cluster || null,
+          village: fields.village || null,
+          khasra_no: fields.khasraNo || null,
+          junction_from: fields.junctionFrom || null,
+          junction_to: fields.junctionTo || null,
+          chainage_from: fields.chainageFrom || null,
+          chainage_to: fields.chainageTo || null,
+          length: parseFloat(fields.length) || null,
+          pipe_dia: parseFloat(fields.dia) || null,
+          row_width: parseFloat(fields.row) || null,
+          land_owner_name: fields.landOwnerName || null,
+          farmer_name: fields.farmerName || null,
+          crop: fields.crop || null,
+          affected_area: parseFloat(fields.affectedArea) || null,
+          mandi_rate: parseFloat(fields.mandiRate) || null,
+          yield: parseFloat(fields.yield) || null,
+          compensation_amount: parseFloat(fields.compensationAmount) || null,
+          bank_name: fields.bankName || null,
+          account_no: fields.accountNo || null,
+          ifsc_code: fields.ifscCode || null,
+          payment_details: null,
+          document_path: sharedDocPath,
+        })
+        .select("id")
+        .single();
+      if (dbError) { setError(`Failed to save entry: ${dbError.message}`); setLoading(false); return; }
+      newLedgerEntries.push({ ...data, _id: inserted.id, srNo: inserted.id, date, approvalId: null, documentPath: sharedDocPath });
+    }
+
+    setLedger(prev => [...prev, ...newLedgerEntries]);
+    // Reset all batch state
+    setExtractedEntries([]);
+    setBatchEntries([]);
+    setBatchPdfTotal(null);
+    setCurrentEntryIndex(0);
+    setForm(EMPTY_FORM);
+    setCalcFlags([]);
+    setWarnings([]);
+    setPendingEntry(null);
+    setUploadFile(null);
+    if (docFileRef.current) docFileRef.current.value = "";
+    setLoading(false);
     setStep("saved");
     setTimeout(() => { setStep("idle"); if (fileRef.current) fileRef.current.value = ""; }, 2500);
   };
@@ -550,8 +706,8 @@ export default function App() {
               <button className="btn-sec" style={{ flex: 1, padding: "11px 0", background: colors.white, color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
                 onClick={() => { setStep("reviewing"); setWarnings([]); }}>← Go Back & Edit</button>
               <button className="btn-primary" style={{ flex: 1, padding: "11px 0", background: highWarnings.length === 0 ? colors.navy : "#dc2626", color: colors.white, border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                onClick={() => commitEntry(pendingEntry)}>
-                {highWarnings.length === 0 ? "Confirm & Save Entry" : "Override & Save (High Risk)"}
+                onClick={() => editingEntry ? commitEntry(pendingEntry) : confirmBatchEntry(pendingEntry)}>
+                {highWarnings.length === 0 ? "Confirm Entry" : "Override & Confirm (High Risk)"}
               </button>
             </div>
           </div>
@@ -647,11 +803,25 @@ export default function App() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
                   <div>
                     <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: colors.text }}>
-                      {editingEntry ? `Edit Entry #${editingEntry.srNo}` : "Review Extracted Data"}
+                      {editingEntry ? `Edit Entry #${editingEntry.srNo}` : extractedEntries.length > 1 ? `Review Entry ${currentEntryIndex + 1} of ${extractedEntries.length}` : "Review Extracted Data"}
                     </div>
                     <div style={{ fontSize: 13, color: colors.textLight, marginTop: 3 }}>
-                      {editingEntry ? "Make changes below. Validations will run again on submit." : "Verify all fields before saving. Edit directly if anything needs correction."}
+                      {editingEntry
+                        ? "Make changes below. Validations will run again on submit."
+                        : extractedEntries.length > 1
+                          ? `This document has ${extractedEntries.length} land segments. Review and confirm each entry — nothing is saved until you commit all entries at the end.`
+                          : "Verify all fields before saving. Edit directly if anything needs correction."}
                     </div>
+                    {!editingEntry && extractedEntries.length > 1 && (
+                      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                        {extractedEntries.map((_, i) => (
+                          <div key={i} style={{
+                            width: 28, height: 6, borderRadius: 3,
+                            background: i < currentEntryIndex ? colors.green : i === currentEntryIndex ? colors.navy : colors.border,
+                          }} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <button className="btn-sec" style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 5, color: colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, padding: "6px 13px", cursor: "pointer" }}
                     onClick={editingEntry ? cancelEdit : () => { setStep("idle"); setForm(EMPTY_FORM); setCalcFlags([]); }}>✕ {editingEntry ? "Cancel Edit" : "Clear"}</button>
@@ -734,12 +904,139 @@ export default function App() {
 
                 <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
                   <button className="btn-sec" style={{ padding: "11px 20px", background: colors.white, color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, cursor: "pointer" }}
-                    onClick={editingEntry ? cancelEdit : () => { setStep("idle"); setForm(EMPTY_FORM); setCalcFlags([]); }}>Cancel</button>
+                    onClick={editingEntry ? cancelEdit : () => {
+                      setStep("idle"); setForm(EMPTY_FORM); setCalcFlags([]);
+                      setExtractedEntries([]); setBatchEntries([]); setBatchPdfTotal(null); setCurrentEntryIndex(0); setUploadFile(null);
+                    }}>Cancel</button>
                   <button className="btn-primary" style={{ flex: 1, padding: "11px 0", background: colors.navy, color: colors.white, border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer" }}
-                    onClick={handleSave}>{editingEntry ? "Run Checks & Update Entry →" : "Run Checks & Save Entry →"}</button>
+                    onClick={handleSave}>
+                    {editingEntry
+                      ? "Run Checks & Update Entry →"
+                      : extractedEntries.length > 1
+                        ? currentEntryIndex < extractedEntries.length - 1
+                          ? `Run Checks & Confirm Entry ${currentEntryIndex + 1} →`
+                          : `Run Checks & Confirm Final Entry →`
+                        : "Run Checks & Save Entry →"}
+                  </button>
                 </div>
               </div>
             )}
+
+            {/* ---- Batch Summary ---- */}
+            {step === "batch-summary" && (() => {
+              const batchSum = batchEntries.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
+              const pdfTotal = parseFloat(batchPdfTotal) || 0;
+              const diff = parseFloat((batchSum - pdfTotal).toFixed(2));
+              const match = pdfTotal > 0 && Math.abs(diff) <= 2;
+              return (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                    <div>
+                      <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: colors.text }}>
+                        Batch Summary — {batchEntries.length} {batchEntries.length === 1 ? "Entry" : "Entries"} Ready
+                      </div>
+                      <div style={{ fontSize: 13, color: colors.textLight, marginTop: 3 }}>
+                        Review the summary below and commit all entries to the ledger at once.
+                      </div>
+                    </div>
+                    <button className="btn-sec" style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 5, color: colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, padding: "6px 13px", cursor: "pointer" }}
+                      onClick={() => {
+                        setStep("idle"); setForm(EMPTY_FORM); setCalcFlags([]);
+                        setExtractedEntries([]); setBatchEntries([]); setBatchPdfTotal(null); setCurrentEntryIndex(0); setUploadFile(null);
+                      }}>✕ Cancel Batch</button>
+                  </div>
+
+                  {/* Comparison card */}
+                  <div style={{ background: match ? "#f0fdf4" : "#fff7ed", border: `1px solid ${match ? "#86efac" : "#fed7aa"}`, borderRadius: 10, padding: "16px 20px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                    <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: match ? "#166534" : "#92400e", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 4 }}>Sum of Individual Entries</div>
+                        <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: match ? "#166534" : "#92400e" }}>Rs. {batchSum.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</div>
+                      </div>
+                      {pdfTotal > 0 && (
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 4 }}>PDF Total (Annexure-1)</div>
+                          <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: colors.navy }}>Rs. {pdfTotal.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</div>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: match ? "#166534" : "#b45309" }}>
+                      {pdfTotal === 0
+                        ? "PDF total not found — verify manually"
+                        : match
+                          ? "Totals match"
+                          : `Difference: Rs. ${Math.abs(diff).toLocaleString("en-IN", { maximumFractionDigits: 2 })} — verify before committing`}
+                    </div>
+                  </div>
+
+                  {/* Entry table */}
+                  <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 18 }}>
+                    <div style={{ background: colors.formBg, borderBottom: `1px solid ${colors.border}`, padding: "11px 20px" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#3a4566", textTransform: "uppercase", letterSpacing: 0.8 }}>Entries to be Committed</span>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            {["#", "Khasra No.", "Junction", "Chainage", "Length (m)", "Dia (MM)", "ROW (m)", "Affected Area (Ha)", "Mandi Rate", "Yield (q/ha)", "Compensation (Rs)"].map(h => (
+                              <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "9px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {batchEntries.map((e, i) => (
+                            <tr key={i} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
+                              <td style={{ padding: "10px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{i + 1}</td>
+                              <td style={{ padding: "10px 14px", fontWeight: 600, color: colors.text }}>{e.khasraNo}</td>
+                              <td style={{ padding: "10px 14px", color: colors.textMid }}>{e.junctionFrom} → {e.junctionTo}</td>
+                              <td style={{ padding: "10px 14px", color: colors.textMid }}>{e.chainageFrom}–{e.chainageTo}</td>
+                              <td style={{ padding: "10px 14px", color: colors.navy, fontWeight: 600 }}>{e.length}</td>
+                              <td style={{ padding: "10px 14px", color: colors.textMid }}>{e.dia}</td>
+                              <td style={{ padding: "10px 14px", color: colors.textMid }}>{e.row}</td>
+                              <td style={{ padding: "10px 14px", color: colors.navy, fontWeight: 600 }}>{e.affectedArea}</td>
+                              <td style={{ padding: "10px 14px", color: colors.textMid }}>{e.mandiRate}</td>
+                              <td style={{ padding: "10px 14px", color: colors.textMid }}>{e.yield}</td>
+                              <td style={{ padding: "10px 14px", fontFamily: "'Lora', Georgia, serif", fontWeight: 600, color: colors.gold }}>
+                                {parseFloat(e.compensationAmount) ? parseFloat(e.compensationAmount).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: colors.formBg, borderTop: `1px solid ${colors.border}` }}>
+                            <td colSpan={10} style={{ padding: "10px 14px", fontSize: 12, fontWeight: 700, color: colors.textMid, textTransform: "uppercase", letterSpacing: 0.6 }}>Total</td>
+                            <td style={{ padding: "10px 14px", fontFamily: "'Lora', Georgia, serif", fontSize: 15, fontWeight: 600, color: colors.gold }}>
+                              Rs. {batchSum.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  {loading ? (
+                    <div style={{ textAlign: "center", padding: 24 }}><div className="spinner" /></div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button className="btn-sec" style={{ padding: "11px 20px", background: colors.white, color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, cursor: "pointer" }}
+                        onClick={() => {
+                          // Go back to reviewing the last entry
+                          const lastIdx = batchEntries.length - 1;
+                          setBatchEntries(batchEntries.slice(0, lastIdx));
+                          setCurrentEntryIndex(lastIdx);
+                          setForm(extractedEntries[lastIdx] || EMPTY_FORM);
+                          setCalcFlags(verifyCalculations(extractedEntries[lastIdx] || EMPTY_FORM));
+                          setStep("reviewing");
+                        }}>← Review Last Entry</button>
+                      <button className="btn-primary" style={{ flex: 1, padding: "11px 0", background: colors.navy, color: colors.white, border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+                        onClick={commitAllBatchEntries}>
+                        Commit All {batchEntries.length} {batchEntries.length === 1 ? "Entry" : "Entries"} to Ledger →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
