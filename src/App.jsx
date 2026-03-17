@@ -620,12 +620,6 @@ export default function App() {
     setNewJunction({ from: "", to: "", length: "" });
   };
 
-  const handleGenerateId = () => {
-    const year = new Date().getFullYear();
-    const rand = Math.floor(1000 + Math.random() * 9000);
-    setGeneratedApprovalId(`RVR-${year}-${rand}`);
-  };
-
   const handleAcceptPending = async () => {
     if (!generatedApprovalId || selectedPending.size === 0) return;
     setLoading(true);
@@ -1288,7 +1282,7 @@ export default function App() {
                         <tbody>
                           {clusterLedger.map((e, i) => (
                             <tr key={i} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
-                              <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{e.srNo}</td>
+                              <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{i + 1}</td>
                               <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
                               <td style={{ padding: "11px 14px" }}>
                                 {e.approvalId ? (
@@ -1378,30 +1372,20 @@ export default function App() {
                                 {pendingEntries.length} {pendingEntries.length === 1 ? "entry" : "entries"} awaiting approval
                                 {selectedPending.size > 0 && <span style={{ marginLeft: 8, color: colors.navy }}>— {selectedPending.size} selected</span>}
                               </div>
-                              {generatedApprovalId && (
-                                <div style={{ fontSize: 13, color: "#78350f", marginTop: 4 }}>
-                                  Generated ID: <strong style={{ fontFamily: "monospace", background: "#fef3c7", padding: "2px 8px", borderRadius: 4 }}>{generatedApprovalId}</strong>
-                                </div>
-                              )}
                             </div>
-                            <div style={{ display: "flex", gap: 10 }}>
-                              {!generatedApprovalId ? (
-                                <button onClick={handleGenerateId} disabled={selectedPending.size === 0}
-                                  style={{ background: selectedPending.size > 0 ? colors.gold : "#e8ecf6", color: selectedPending.size > 0 ? "white" : colors.textLight, border: "none", borderRadius: 5, padding: "8px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: selectedPending.size > 0 ? "pointer" : "not-allowed" }}>
-                                  Generate ID for {selectedPending.size > 0 ? `${selectedPending.size} Selected` : "Selected"}
-                                </button>
-                              ) : (
-                                <>
-                                  <button onClick={() => setGeneratedApprovalId(null)}
-                                    style={{ background: colors.white, color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 5, padding: "8px 16px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, cursor: "pointer" }}>
-                                    Cancel
-                                  </button>
-                                  <button onClick={handleAcceptPending} disabled={loading}
-                                    style={{ background: colors.green, color: "white", border: "none", borderRadius: 5, padding: "8px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                                    {loading ? "Processing…" : "Accept & Download Excel"}
-                                  </button>
-                                </>
-                              )}
+                            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                              <input
+                                type="text"
+                                value={generatedApprovalId || ""}
+                                onChange={e => setGeneratedApprovalId(e.target.value || null)}
+                                placeholder="Enter Approval ID"
+                                disabled={selectedPending.size === 0}
+                                style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "8px 12px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.navy, background: selectedPending.size > 0 ? colors.white : "#f3f4f6", outline: "none", width: 180 }}
+                              />
+                              <button onClick={handleAcceptPending} disabled={loading || !generatedApprovalId || selectedPending.size === 0}
+                                style={{ background: generatedApprovalId && selectedPending.size > 0 ? colors.green : "#e8ecf6", color: generatedApprovalId && selectedPending.size > 0 ? "white" : colors.textLight, border: "none", borderRadius: 5, padding: "8px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: generatedApprovalId && selectedPending.size > 0 && !loading ? "pointer" : "not-allowed", opacity: loading ? 0.7 : 1 }}>
+                                {loading ? "Processing…" : "Accept & Download Excel"}
+                              </button>
                             </div>
                           </div>
 
@@ -1429,7 +1413,7 @@ export default function App() {
                                         onChange={ev => setSelectedPending(prev => { const s = new Set(prev); ev.target.checked ? s.add(e._id) : s.delete(e._id); return s; })}
                                         style={{ cursor: "pointer" }} />
                                     </td>
-                                    <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{e.srNo}</td>
+                                    <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{clusterLedger.findIndex(ce => ce._id === e._id) + 1}</td>
                                     <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.cluster}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.village}</td>

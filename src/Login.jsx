@@ -28,7 +28,7 @@ export default function Login({ onLogin }) {
 
       {/* Header */}
       <div style={{ background: colors.navy, padding: "0 40px", display: "flex", alignItems: "center", height: 66, boxShadow: "0 2px 10px rgba(0,0,0,0.2)" }}>
-        <div style={{ background: colors.gold, color: "white", fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 3, letterSpacing: 1, textTransform: "uppercase", marginRight: 16 }}>NVDA</div>
+        <div style={{ background: colors.gold, color: "white", fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 3, letterSpacing: 1, textTransform: "uppercase", marginRight: 16 }}>RVR</div>
         <div>
           <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 19, fontWeight: 600, color: "#ffffff" }}>Crop Compensation Ledger</div>
           <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.45)", marginTop: 2 }}>Pipeline Project — Farmer Compensation Tracker</div>
