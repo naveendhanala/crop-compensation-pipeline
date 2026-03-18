@@ -1482,11 +1482,25 @@ export default function App() {
                                         ? <a href={getDocumentUrl(e.documentPath)} target="_blank" rel="noopener noreferrer" style={{ color: colors.navy, fontWeight: 600, fontSize: 12, textDecoration: "none" }}>📎 View</a>
                                         : <span style={{ color: colors.textLight, fontSize: 12 }}>—</span>}
                                     </td>
-                                    <td style={{ padding: "11px 14px" }}>
+                                    <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                       <button onClick={() => handleEdit(e)}
-                                        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
+                                        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
                                         Edit
                                       </button>
+                                      {deleteConfirm === e._id ? (
+                                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                          <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>Delete?</span>
+                                          <button onClick={() => handleDeleteEntry(e)} disabled={loading}
+                                            style={{ background: "#dc2626", color: "white", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
+                                          <button onClick={() => setDeleteConfirm(null)}
+                                            style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
+                                        </span>
+                                      ) : (
+                                        <button onClick={() => setDeleteConfirm(e._id)}
+                                          style={{ background: "none", border: `1px solid #fca5a5`, borderRadius: 4, color: "#dc2626", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
+                                          Delete
+                                        </button>
+                                      )}
                                     </td>
                                   </tr>
                                 ))}
