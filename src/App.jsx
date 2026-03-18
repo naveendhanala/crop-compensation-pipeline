@@ -45,7 +45,9 @@ function chainageOverlap(aFrom, aTo, bFrom, bTo) {
 function checkDuplicates(form, ledger) {
   const warnings = [];
   ledger.forEach((entry) => {
+    const sameCluster = !form.cluster || !entry.cluster || entry.cluster === form.cluster;
     if (
+      sameCluster &&
       entry.khasraNo.trim().toLowerCase() === form.khasraNo.trim().toLowerCase() &&
       form.chainageFrom && form.chainageTo &&
       entry.chainageFrom && entry.chainageTo &&
@@ -221,6 +223,7 @@ export default function App() {
   const [selectedLedgerCluster, setSelectedLedgerCluster] = useState("A");
   const [paymentEntry, setPaymentEntry] = useState(null); // _id of record being paid
   const [paymentInput, setPaymentInput] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // _id of record pending delete
   const [uploadFile, setUploadFile] = useState(null); // document to attach to entry
   // Batch extraction state
   const [extractedEntries, setExtractedEntries] = useState([]); // all rows extracted from PDF
@@ -391,9 +394,9 @@ export default function App() {
 
   const commitEntry = async (data) => {
     if (editingEntry) {
-      // UPDATE existing entry — preserve approvalId
-      const { _id, srNo, date, approvalId } = editingEntry;
-      const { _id: _a, srNo: _b, date: _c, approvalId: _d, ...fields } = { ...data };
+      // UPDATE existing entry — approvalId editable via form
+      const { _id, srNo, date } = editingEntry;
+      const { _id: _a, srNo: _b, date: _c, approvalId, ...fields } = { ...data };
       let documentPath = editingEntry.documentPath || null;
       if (uploadFile) {
         const ext = uploadFile.name.split('.').pop();
@@ -407,6 +410,7 @@ export default function App() {
       const { error: dbError } = await supabase
         .from("ledger")
         .update({
+          approval_id: approvalId || null,
           cluster: fields.cluster || null,
           village: fields.village || null,
           khasra_no: fields.khasraNo || null,
@@ -565,7 +569,7 @@ export default function App() {
   const handleEdit = (entry) => {
     const { _id, srNo, date, ...fields } = entry;
     setEditingEntry(entry);
-    setForm({ ...EMPTY_FORM, ...fields });
+    setForm({ ...EMPTY_FORM, ...fields, approvalId: entry.approvalId || "" });
     setCalcFlags(verifyCalculations({ ...EMPTY_FORM, ...fields }));
     setActiveTab("entry");
     setStep("reviewing");
@@ -579,6 +583,15 @@ export default function App() {
     setUploadFile(null);
     setStep("idle");
     setActiveTab("ledger");
+  };
+
+  const handleDeleteEntry = async (entry) => {
+    setLoading(true);
+    const { error: dbError } = await supabase.from("ledger").delete().eq("id", entry._id);
+    if (dbError) { setError(`Failed to delete: ${dbError.message}`); setLoading(false); return; }
+    setLedger(prev => prev.filter(e => e._id !== entry._id));
+    setDeleteConfirm(null);
+    setLoading(false);
   };
 
   const highWarnings = warnings.filter(w => w.severity === "high");
@@ -821,6 +834,23 @@ export default function App() {
                     onClick={editingEntry ? cancelEdit : () => { setStep("idle"); setForm(EMPTY_FORM); setCalcFlags([]); }}>✕ {editingEntry ? "Cancel Edit" : "Clear"}</button>
                 </div>
 
+                {editingEntry && (
+                  <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, marginBottom: 14, overflow: "hidden" }}>
+                    <div style={{ background: "#fffbeb", borderBottom: `1px solid #fde68a`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 9 }}>
+                      <span style={{ fontSize: 14 }}>✅</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: 0.8 }}>Approval</span>
+                    </div>
+                    <div style={{ padding: "14px 20px" }}>
+                      <label style={{ fontSize: 10.5, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, display: "block" }}>Approval ID</label>
+                      <input
+                        value={form.approvalId || ""}
+                        onChange={e => setForm(prev => ({ ...prev, approvalId: e.target.value }))}
+                        placeholder="e.g. RVR-2025-1234"
+                        style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, boxSizing: "border-box" }}
+                      />
+                    </div>
+                  </div>
+                )}
                 {GROUPS.map(group => {
                   const gFields = FIELDS.filter(f => f.group === group.id);
                   return (
@@ -1280,7 +1310,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {clusterLedger.map((e, i) => (
+                          {clusterLedger.filter(e => e.approvalId).map((e, i) => (
                             <tr key={i} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
                               <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{i + 1}</td>
                               <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
@@ -1323,6 +1353,20 @@ export default function App() {
                                   style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
                                   Edit
                                 </button>
+                                {deleteConfirm === e._id ? (
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>Delete?</span>
+                                    <button onClick={() => handleDeleteEntry(e)} disabled={loading}
+                                      style={{ background: "#dc2626", color: "white", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
+                                    <button onClick={() => setDeleteConfirm(null)}
+                                      style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
+                                  </span>
+                                ) : (
+                                  <button onClick={() => setDeleteConfirm(e._id)}
+                                    style={{ background: "none", border: `1px solid #fca5a5`, borderRadius: 4, color: "#dc2626", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
+                                    Delete
+                                  </button>
+                                )}
                                 {e.approvalId && (
                                   paymentEntry === e._id ? (
                                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
