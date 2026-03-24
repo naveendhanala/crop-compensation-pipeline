@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import Anthropic from "@anthropic-ai/sdk";
 import Login from "./Login";
 import { supabase } from "./supabaseClient";
@@ -24,6 +24,7 @@ const FIELDS = [
   { key: "mandiRate", label: "Mandi Rate (Rs/quintal)", group: "compensation" },
   { key: "yield", label: "Yield (quintals/ha)", group: "compensation" },
   { key: "compensationAmount", label: "Compensation Amount (Rs)", group: "compensation" },
+  { key: "paymentMode", label: "Payment Mode", group: "banking", type: "select", options: ["", "Account Pay Cheque", "RTGS"] },
   { key: "bankName", label: "Bank Name", group: "banking" },
   { key: "accountNo", label: "Account Number", group: "banking" },
   { key: "ifscCode", label: "IFSC Code", group: "banking" },
@@ -186,6 +187,98 @@ function getDocumentUrl(path) {
   return data.publicUrl;
 }
 
+function parseChainageVal(val) {
+  if (!val) return 0;
+  const s = String(val).trim();
+  if (s.includes('+')) {
+    const parts = s.split('+');
+    return parseFloat(parts[0]) * 1000 + parseFloat(parts[1] || 0);
+  }
+  return parseFloat(s) || 0;
+}
+
+function downloadJunctionExcel(jFrom, jTo, entries) {
+  const headers = ["#", "Chainage From", "Chainage To", "Length (m)", "Amount (Rs.)", "Farmer Name", "Top Sheet No", "Remarks"];
+  const rows = entries.map((e, i) => [i + 1, e.chainageFrom || "", e.chainageTo || "", e.length || "", e.compensationAmount || "", e.farmerName || "", e.approvalId || "Pending", e.remarks || ""]);
+  const tableHTML = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+  const blob = new Blob([tableHTML], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `junction_${jFrom}_${jTo}_${new Date().toISOString().split("T")[0]}.xls`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const PROJECT_NAME = "CHINKI BORAS BARRAGE COMBINED MULTIPURPOSE PROJECT";
+
+function downloadTopSheetExcel(entries, approvalId, cluster) {
+  const rowWidth = entries[0]?.row || "";
+  const date = entries[0]?.date || new Date().toLocaleDateString("en-IN");
+  const headers = ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PRODUCTIVITY IN REQUIRED AREA (C=AxB)", "RATE/QUINTAL (\u20b9) (D)", "AMOUNT (E=CxD)", "NAME OF LAND OWNER", "PAYMENT MODE", "REMARKS"];
+  const rows = entries.map((e, i) => {
+    const area = parseFloat(e.affectedArea) || 0;
+    const yld = parseFloat(e.yield) || 0;
+    const prodInArea = area && yld ? parseFloat((area * yld).toFixed(3)) : "";
+    const landArea = area ? Math.round(area * 10000) : "";
+    return [i + 1, e.dia || "", e.village || "", `${e.junctionFrom || ""}${e.junctionTo ? "-" + e.junctionTo : ""}`, e.chainageFrom || "", e.chainageTo || "", e.length || "", landArea, area || "", e.khasraNo || "", e.crop || "", yld || "", prodInArea, e.mandiRate || "", e.compensationAmount || "", e.landOwnerName || "", e.paymentMode || "", e.remarks || ""];
+  });
+  const totalLength = entries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
+  const totalArea = entries.reduce((s, e) => s + (parseFloat(e.affectedArea) || 0), 0);
+  const totalAmount = entries.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
+  const rtgsEntries = entries.filter(e => e.paymentMode === "RTGS");
+  const rtgsSection = rtgsEntries.length > 0 ? `
+    <br/>
+    <table style="border:none;width:100%">
+      ${rtgsEntries.map((e, i) => i % 2 === 0 ? `<tr>
+        <td style="border:1px solid #ccc;padding:10px;width:50%;vertical-align:top">
+          <b>Bank details for RTGS :</b><br/>
+          <b>${i + 1})</b><br/>
+          Account Name - <b>${e.landOwnerName || e.farmerName || ""}</b><br/>
+          Bank Name - <b>${e.bankName || ""}</b><br/>
+          A/c No. - <b>${e.accountNo || ""}</b><br/>
+          IFSC No. - <b>${e.ifscCode || ""}</b>
+        </td>
+        ${rtgsEntries[i + 1] ? `<td style="border:1px solid #ccc;padding:10px;width:50%;vertical-align:top">
+          <b>Bank details for RTGS :</b><br/>
+          <b>${i + 2})</b><br/>
+          Account Name - <b>${rtgsEntries[i + 1].landOwnerName || rtgsEntries[i + 1].farmerName || ""}</b><br/>
+          Bank Name - <b>${rtgsEntries[i + 1].bankName || ""}</b><br/>
+          A/c No. - <b>${rtgsEntries[i + 1].accountNo || ""}</b><br/>
+          IFSC No. - <b>${rtgsEntries[i + 1].ifscCode || ""}</b>
+        </td>` : "<td></td>"}
+      </tr>` : "").filter(Boolean).join("")}
+    </table>` : "";
+  const tableHTML = `<html><head><meta charset="UTF-8"><style>
+    body{font-family:Arial,sans-serif;font-size:10pt}
+    table{border-collapse:collapse;width:100%}
+    th,td{border:1px solid #000;padding:4px 6px;text-align:center;vertical-align:middle}
+    .nh{border:none;text-align:center}
+  </style></head><body>
+    <p style="text-align:center;font-weight:bold;font-size:12pt;margin:2px 0">${PROJECT_NAME}</p>
+    <table style="border:none;margin-bottom:6px">
+      <tr><td class="nh" style="width:50%;text-align:left">CLUSTER ${cluster}</td><td class="nh" style="text-align:right">WIDTH: ${rowWidth}m</td></tr>
+      <tr><td class="nh" colspan="2" style="text-align:center;font-weight:bold">CROP COMPENSATION ABSTRACT</td></tr>
+      <tr><td class="nh" style="text-align:left">S.No: ${approvalId}</td><td class="nh" style="text-align:right">Date: ${date}</td></tr>
+    </table>
+    <table>
+      <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}
+        <tr><td colspan="6" style="font-weight:bold;text-align:right">TOTAL</td><td style="font-weight:bold">${totalLength}</td><td></td><td style="font-weight:bold">${totalArea.toFixed(3)}</td><td colspan="5"></td><td style="font-weight:bold">${totalAmount.toLocaleString("en-IN")}</td><td colspan="3"></td></tr>
+      </tbody>
+    </table>
+    ${rtgsSection}
+  </body></html>`;
+  const blob = new Blob([tableHTML], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `TopSheet_${approvalId}_Cluster${cluster}_${new Date().toISOString().split("T")[0]}.xls`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function exportToExcel(entries, approvalId) {
   const headers = ["Approval ID", "Sr.No.", "Date", ...FIELDS.map(f => f.label)];
   const rows = entries.map(e => [approvalId, e.srNo, e.date, ...FIELDS.map(f => e[f.key] || "")]);
@@ -216,6 +309,9 @@ export default function App() {
   const [hoverUpload, setHoverUpload] = useState(false);
   const [clusterJunctions, setClusterJunctions] = useState({});
   const [selectedJunctionCluster, setSelectedJunctionCluster] = useState("A");
+  const [selectedTopsheetCluster, setSelectedTopsheetCluster] = useState("A");
+  const [topsheetSearch, setTopsheetSearch] = useState("");
+  const [topsheetSelected, setTopsheetSelected] = useState(null);
   const [junctionEdit, setJunctionEdit] = useState(null); // index of row being edited
   const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "", dia: "" });
   const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "", dia: "" });
@@ -295,6 +391,7 @@ export default function App() {
         mandiRate: row.mandi_rate != null ? String(row.mandi_rate) : '',
         yield: row.yield != null ? String(row.yield) : '',
         compensationAmount: row.compensation_amount != null ? String(row.compensation_amount) : '',
+        paymentMode: row.payment_mode || '',
         bankName: row.bank_name || '',
         accountNo: row.account_no || '',
         ifscCode: row.ifsc_code || '',
@@ -444,6 +541,7 @@ export default function App() {
           mandi_rate: parseFloat(fields.mandiRate) || null,
           yield: parseFloat(fields.yield) || null,
           compensation_amount: parseFloat(fields.compensationAmount) || null,
+          payment_mode: fields.paymentMode || null,
           bank_name: fields.bankName || null,
           account_no: fields.accountNo || null,
           ifsc_code: fields.ifscCode || null,
@@ -480,6 +578,7 @@ export default function App() {
           mandi_rate: parseFloat(fields.mandiRate) || null,
           yield: parseFloat(fields.yield) || null,
           compensation_amount: parseFloat(fields.compensationAmount) || null,
+          payment_mode: fields.paymentMode || null,
           bank_name: fields.bankName || null,
           account_no: fields.accountNo || null,
           ifsc_code: fields.ifscCode || null,
@@ -555,6 +654,7 @@ export default function App() {
           mandi_rate: parseFloat(fields.mandiRate) || null,
           yield: parseFloat(fields.yield) || null,
           compensation_amount: parseFloat(fields.compensationAmount) || null,
+          payment_mode: fields.paymentMode || null,
           bank_name: fields.bankName || null,
           account_no: fields.accountNo || null,
           ifsc_code: fields.ifscCode || null,
@@ -664,7 +764,6 @@ export default function App() {
         .eq("id", _id);
       if (dbError) { setError(`Failed to approve: ${dbError.message}`); setLoading(false); return; }
     }
-    exportToExcel(toApprove, generatedApprovalId);
     setLedger(prev => prev.map(e => selectedPending.has(e._id) ? { ...e, approvalId: generatedApprovalId } : e));
     setSelectedPending(new Set());
     setGeneratedApprovalId(null);
@@ -759,7 +858,7 @@ export default function App() {
 
       {/* NAV TABS */}
       <div style={{ background: colors.white, borderBottom: `1px solid ${colors.border}`, padding: "0 40px", display: "flex" }}>
-        {[["entry", "New Entry"], ["ledger", "Ledger"], ["junctions", "Junctions"]].map(([id, label]) => (
+        {[["entry", "New Entry"], ["ledger", "Ledger"], ["junctions", "Junctions"], ["topsheets", "Top Sheets"]].map(([id, label]) => (
           <button key={id} className="nav-tab" onClick={() => setActiveTab(id)}
             style={{ background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: activeTab === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: activeTab === id ? 700 : 500, padding: "13px 20px", cursor: "pointer" }}>
             {label}
@@ -1138,112 +1237,161 @@ export default function App() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr>
-                      {["#", "From", "To", "Dia of Pipe (mm)", "Length (m)", "Completed Length (m)", "Balance Length (m)", "Actions"].map(h => (
-                        <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 16px", textAlign: ["Dia of Pipe (mm)", "Length (m)", "Completed Length (m)", "Balance Length (m)", "#"].includes(h) ? "right" : "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
+                      {[
+                        { label: "#", align: "right" },
+                        { label: "From", align: "left" },
+                        { label: "To", align: "left" },
+                        { label: "DIA (mm)", align: "right" },
+                        { label: "Node Length (m)", align: "right" },
+                        { label: "Complete (m)", align: "right" },
+                        { label: "Ch. From", align: "right" },
+                        { label: "Ch. To", align: "right" },
+                        { label: "Length (m)", align: "right" },
+                        { label: "Balance (m)", align: "right" },
+                        { label: "Amount", align: "right" },
+                        { label: "Farmer Name", align: "left" },
+                        { label: "Top Sheet No", align: "left" },
+                        { label: "Actions", align: "left" },
+                        { label: "Remarks", align: "left" },
+                        { label: "", align: "left" },
+                      ].map((h, i) => (
+                        <th key={i} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 12px", textAlign: h.align, borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h.label}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {junctionData.map((j, idx) => {
-                      const completedLength = ledger
+                    {junctionData.flatMap((j, idx) => {
+                      const jEntries = ledger
                         .filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to)
-                        .reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
+                        .sort((a, b) => parseChainageVal(a.chainageFrom) - parseChainageVal(b.chainageFrom));
+                      const completedLength = jEntries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
                       const balanceLength = (parseFloat(j.length) || 0) - completedLength;
-                      return (
-                        <tr key={idx} className="trow" style={{ borderBottom: `1px solid #f0f2f8` }}>
-                          <td style={{ padding: "10px 16px", color: colors.textLight, fontWeight: 600, fontSize: 12, textAlign: "right", width: 50 }}>{idx + 1}</td>
+
+                      const junctionRow = (
+                        <tr key={`j-${idx}`} style={{ background: "#eef2fb", borderBottom: `2px solid ${colors.border}` }}>
+                          <td style={{ padding: "10px 12px", color: colors.textLight, fontWeight: 700, fontSize: 12, textAlign: "right" }}>{idx + 1}</td>
                           {junctionEdit === idx ? (
                             <>
-                              <td style={{ padding: "6px 16px" }}>
+                              <td style={{ padding: "6px 12px" }}>
                                 <input value={junctionEditForm.from} onChange={e => setJunctionEditForm(f => ({ ...f, from: e.target.value }))}
-                                  placeholder="From"
-                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }} />
+                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "5px 8px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, width: "100%" }} />
                               </td>
-                              <td style={{ padding: "6px 16px" }}>
+                              <td style={{ padding: "6px 12px" }}>
                                 <input value={junctionEditForm.to} onChange={e => setJunctionEditForm(f => ({ ...f, to: e.target.value }))}
-                                  placeholder="To"
-                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }} />
+                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "5px 8px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, width: "100%" }} />
                               </td>
-                              <td style={{ padding: "6px 16px", width: 120 }}>
+                              <td style={{ padding: "6px 12px" }}>
                                 <input type="number" value={junctionEditForm.dia} onChange={e => setJunctionEditForm(f => ({ ...f, dia: e.target.value }))}
-                                  placeholder="Dia (mm)"
-                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }} />
+                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "5px 8px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, width: "100%", textAlign: "right" }} />
                               </td>
-                              <td style={{ padding: "6px 16px", width: 140 }}>
+                              <td style={{ padding: "6px 12px" }}>
                                 <input type="number" value={junctionEditForm.length} onChange={e => setJunctionEditForm(f => ({ ...f, length: e.target.value }))}
-                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }} />
+                                  style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "5px 8px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, width: "100%", textAlign: "right" }} />
                               </td>
-                              <td style={{ padding: "6px 16px", textAlign: "right", color: colors.textLight }}>—</td>
-                              <td style={{ padding: "6px 16px", textAlign: "right", color: colors.textLight }}>—</td>
-                              <td style={{ padding: "6px 16px", whiteSpace: "nowrap" }}>
-                                <button onClick={saveJunctionEdit} style={{ background: colors.navy, color: "white", border: "none", borderRadius: 4, padding: "5px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Save</button>
-                                <button onClick={() => setJunctionEdit(null)} style={{ background: "none", color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 4, padding: "5px 12px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Cancel</button>
+                              <td colSpan={8} />
+                              <td style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>
+                                <button onClick={saveJunctionEdit} style={{ background: colors.navy, color: "white", border: "none", borderRadius: 4, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Save</button>
+                                <button onClick={() => setJunctionEdit(null)} style={{ background: "none", color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 4, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Cancel</button>
                               </td>
+                              <td colSpan={2} />
                             </>
                           ) : (
                             <>
-                              <td style={{ padding: "10px 16px", color: colors.text, fontWeight: 500 }}>{j.from}</td>
-                              <td style={{ padding: "10px 16px", color: colors.text, fontWeight: 500 }}>{j.to}</td>
-                              <td style={{ padding: "10px 16px", color: colors.navy, fontWeight: 600, textAlign: "right" }}>{j.dia ? parseFloat(j.dia).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—"}</td>
-                              <td style={{ padding: "10px 16px", color: colors.navy, fontWeight: 600, textAlign: "right" }}>{parseFloat(j.length).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</td>
-                              <td style={{ padding: "10px 16px", color: completedLength > 0 ? colors.green : colors.textLight, fontWeight: completedLength > 0 ? 600 : 400, textAlign: "right" }}>
-                                {completedLength > 0 ? completedLength.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—"}
+                              <td style={{ padding: "10px 12px", color: colors.text, fontWeight: 700 }}>{j.from}</td>
+                              <td style={{ padding: "10px 12px", color: colors.text, fontWeight: 700 }}>{j.to}</td>
+                              <td style={{ padding: "10px 12px", color: colors.navy, fontWeight: 600, textAlign: "right" }}>{j.dia ? parseFloat(j.dia).toLocaleString("en-IN") : "—"}</td>
+                              <td style={{ padding: "10px 12px", color: colors.navy, fontWeight: 600, textAlign: "right" }}>{parseFloat(j.length).toLocaleString("en-IN", { maximumFractionDigits: 3 })}</td>
+                              <td style={{ padding: "10px 12px", color: completedLength > 0 ? colors.green : colors.textLight, fontWeight: 600, textAlign: "right" }}>{completedLength > 0 ? completedLength.toLocaleString("en-IN", { maximumFractionDigits: 3 }) : "—"}</td>
+                              <td colSpan={3} />
+                              <td style={{ padding: "10px 12px", color: balanceLength < 0 ? "#dc2626" : balanceLength === 0 ? colors.textLight : colors.gold, fontWeight: 700, textAlign: "right" }}>
+                                {balanceLength.toLocaleString("en-IN", { maximumFractionDigits: 3 })}
                               </td>
-                              <td style={{ padding: "10px 16px", color: balanceLength < 0 ? "#dc2626" : balanceLength === 0 ? colors.textLight : colors.gold, fontWeight: 600, textAlign: "right" }}>
-                                {balanceLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                              </td>
-                              <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
+                              <td colSpan={3} />
+                              <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
                                 <button onClick={() => { setJunctionEdit(idx); setJunctionEditForm({ from: j.from, to: j.to, length: String(j.length), dia: String(j.dia ?? "") }); }}
-                                  style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6, fontFamily: "'Source Sans 3', sans-serif" }}>Edit</button>
+                                  style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 11, fontWeight: 600, padding: "3px 10px", cursor: "pointer", marginRight: 4, fontFamily: "'Source Sans 3', sans-serif" }}>Edit</button>
                                 {junctionDeleteConfirm === idx ? (
-                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                    <span style={{ fontSize: 12, color: "#dc2626", fontWeight: 600 }}>Confirm?</span>
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                    <span style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>Confirm?</span>
                                     <button onClick={() => { deleteJunction(idx); setJunctionDeleteConfirm(null); }}
-                                      style={{ background: "#dc2626", border: "none", borderRadius: 4, color: "#fff", fontSize: 12, fontWeight: 600, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
+                                      style={{ background: "#dc2626", border: "none", borderRadius: 4, color: "#fff", fontSize: 11, fontWeight: 600, padding: "3px 8px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
                                     <button onClick={() => setJunctionDeleteConfirm(null)}
-                                      style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.text, fontSize: 12, fontWeight: 600, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
+                                      style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.text, fontSize: 11, fontWeight: 600, padding: "3px 8px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
                                   </span>
                                 ) : (
                                   <button onClick={() => setJunctionDeleteConfirm(idx)}
-                                    style={{ background: "none", border: "1px solid #fca5a5", borderRadius: 4, color: "#dc2626", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Delete</button>
+                                    style={{ background: "none", border: "1px solid #fca5a5", borderRadius: 4, color: "#dc2626", fontSize: 11, fontWeight: 600, padding: "3px 10px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Delete</button>
+                                )}
+                              </td>
+                              <td />
+                              <td style={{ padding: "10px 12px" }}>
+                                {jEntries.length > 0 && (
+                                  <button onClick={() => downloadJunctionExcel(j.from, j.to, jEntries)}
+                                    style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 11, fontWeight: 600, padding: "3px 10px", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'Source Sans 3', sans-serif" }}>↓ Excel</button>
                                 )}
                               </td>
                             </>
                           )}
                         </tr>
                       );
+
+                      const entryRows = jEntries.map((e, ei) => (
+                        <tr key={`e-${idx}-${ei}`} className="trow" style={{ background: e.approvalId ? "#fafbff" : "#fef2f2", borderBottom: `1px solid ${e.approvalId ? "#f0f2f8" : "#fecaca"}` }}>
+                          <td colSpan={6} />
+                          <td style={{ padding: "9px 12px", color: colors.textMid, fontSize: 12, textAlign: "right" }}>{e.chainageFrom}</td>
+                          <td style={{ padding: "9px 12px", color: colors.textMid, fontSize: 12, textAlign: "right" }}>{e.chainageTo}</td>
+                          <td style={{ padding: "9px 12px", color: colors.text, fontWeight: 500, fontSize: 12, textAlign: "right" }}>{e.length}m</td>
+                          <td />
+                          <td style={{ padding: "9px 12px", color: colors.green, fontWeight: 600, fontSize: 12, textAlign: "right" }}>
+                            {e.compensationAmount ? `Rs.${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : "—"}
+                          </td>
+                          <td style={{ padding: "9px 12px", fontSize: 12, color: e.approvalId ? colors.text : "#dc2626", fontWeight: e.approvalId ? 400 : 600 }}>{e.farmerName}</td>
+                          <td style={{ padding: "9px 12px", fontSize: 12 }}>
+                            {e.approvalId
+                              ? <span style={{ background: "#dcfce7", color: "#166534", fontWeight: 700, padding: "2px 8px", borderRadius: 4, fontSize: 11 }}>{e.approvalId}</span>
+                              : <span style={{ background: "#fee2e2", color: "#dc2626", fontWeight: 700, padding: "2px 8px", borderRadius: 4, fontSize: 11 }}>Pending</span>}
+                          </td>
+                          <td />
+                          <td style={{ padding: "9px 12px", maxWidth: 150, fontSize: 12, color: e.remarks ? colors.textMid : colors.textLight, fontStyle: e.remarks ? "normal" : "italic" }} title={e.remarks || ""}>
+                            {e.remarks ? (e.remarks.length > 25 ? e.remarks.slice(0, 25) + "…" : e.remarks) : "—"}
+                          </td>
+                          <td />
+                        </tr>
+                      ));
+
+                      return [junctionRow, ...entryRows];
                     })}
-                    {/* Add new row */}
+                    {/* Add new junction row */}
                     <tr style={{ borderTop: `2px solid ${colors.border}`, background: "#f9fafb" }}>
-                      <td style={{ padding: "10px 16px", color: colors.textLight, fontWeight: 600, fontSize: 12, textAlign: "right" }}>+</td>
-                      <td style={{ padding: "8px 16px" }}>
+                      <td style={{ padding: "10px 12px", color: colors.textLight, fontWeight: 600, fontSize: 12, textAlign: "right" }}>+</td>
+                      <td style={{ padding: "8px 12px" }}>
                         <input value={newJunction.from} onChange={e => setNewJunction(f => ({ ...f, from: e.target.value }))}
                           placeholder="From (e.g. J-96)"
                           style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }}
                           onKeyDown={e => e.key === "Enter" && addJunction()} />
                       </td>
-                      <td style={{ padding: "8px 16px" }}>
+                      <td style={{ padding: "8px 12px" }}>
                         <input value={newJunction.to} onChange={e => setNewJunction(f => ({ ...f, to: e.target.value }))}
                           placeholder="To (e.g. PH-2)"
                           style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%" }}
                           onKeyDown={e => e.key === "Enter" && addJunction()} />
                       </td>
-                      <td style={{ padding: "8px 16px", width: 120 }}>
+                      <td style={{ padding: "8px 12px" }}>
                         <input type="number" value={newJunction.dia} onChange={e => setNewJunction(f => ({ ...f, dia: e.target.value }))}
                           placeholder="Dia (mm)"
                           style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }}
                           onKeyDown={e => e.key === "Enter" && addJunction()} />
                       </td>
-                      <td style={{ padding: "8px 16px", width: 140 }}>
+                      <td style={{ padding: "8px 12px" }}>
                         <input type="number" value={newJunction.length} onChange={e => setNewJunction(f => ({ ...f, length: e.target.value }))}
                           placeholder="Length in m"
                           style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "6px 9px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: "100%", textAlign: "right" }}
                           onKeyDown={e => e.key === "Enter" && addJunction()} />
                       </td>
-                      <td colSpan={2} />
-                      <td style={{ padding: "8px 16px" }}>
+                      <td colSpan={10} />
+                      <td style={{ padding: "8px 12px" }}>
                         <button onClick={addJunction} disabled={!newJunction.from.trim() || !newJunction.to.trim()}
-                          style={{ background: (newJunction.from.trim() && newJunction.to.trim()) ? colors.gold : "#e8ecf6", color: (newJunction.from.trim() && newJunction.to.trim()) ? "white" : colors.textLight, border: "none", borderRadius: 4, padding: "6px 16px", fontSize: 12, fontWeight: 600, cursor: (newJunction.from.trim() && newJunction.to.trim()) ? "pointer" : "not-allowed", fontFamily: "'Source Sans 3', sans-serif" }}>
+                          style={{ background: (newJunction.from.trim() && newJunction.to.trim()) ? colors.gold : "#e8ecf6", color: (newJunction.from.trim() && newJunction.to.trim()) ? "white" : colors.textLight, border: "none", borderRadius: 4, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: (newJunction.from.trim() && newJunction.to.trim()) ? "pointer" : "not-allowed", fontFamily: "'Source Sans 3', sans-serif" }}>
                           Add Junction
                         </button>
                       </td>
@@ -1251,17 +1399,18 @@ export default function App() {
                   </tbody>
                   <tfoot>
                     <tr style={{ background: colors.formBg, borderTop: `1px solid ${colors.border}` }}>
-                      <td colSpan={4} style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, color: colors.textMid, textTransform: "uppercase", letterSpacing: 0.6 }}>Totals</td>
-                      <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.gold, textAlign: "right" }}>
-                        {totalJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
+                      <td colSpan={4} style={{ padding: "10px 12px", fontSize: 12, fontWeight: 700, color: colors.textMid, textTransform: "uppercase", letterSpacing: 0.6 }}>Totals</td>
+                      <td style={{ padding: "10px 12px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.gold, textAlign: "right" }}>
+                        {totalJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 3 })} m
                       </td>
-                      <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.green, textAlign: "right" }}>
-                        {junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
+                      <td style={{ padding: "10px 12px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.green, textAlign: "right" }}>
+                        {junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0).toLocaleString("en-IN", { maximumFractionDigits: 3 })} m
                       </td>
-                      <td style={{ padding: "10px 16px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.navy, textAlign: "right" }}>
-                        {(totalJunctionLength - junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m
+                      <td colSpan={3} />
+                      <td style={{ padding: "10px 12px", fontFamily: "'Lora', Georgia, serif", fontSize: 14, fontWeight: 600, color: colors.navy, textAlign: "right" }}>
+                        {(totalJunctionLength - junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0)).toLocaleString("en-IN", { maximumFractionDigits: 3 })} m
                       </td>
-                      <td />
+                      <td colSpan={6} />
                     </tr>
                   </tfoot>
                 </table>
@@ -1269,6 +1418,165 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* ---- TOP SHEETS TAB ---- */}
+        {activeTab === "topsheets" && (() => {
+          const allApproved = ledger.filter(e => e.approvalId);
+          const grouped = allApproved.reduce((acc, e) => {
+            (acc[e.approvalId] = acc[e.approvalId] || []).push(e);
+            return acc;
+          }, {});
+          const allIds = Object.keys(grouped).sort();
+          const filtered = topsheetSearch.trim()
+            ? allIds.filter(id => id.toLowerCase().includes(topsheetSearch.trim().toLowerCase()))
+            : allIds;
+          const selectedEntries = topsheetSelected && grouped[topsheetSelected]
+            ? grouped[topsheetSelected].sort((a, b) => parseChainageVal(a.chainageFrom) - parseChainageVal(b.chainageFrom))
+            : null;
+          const thStyle = { background: "#f0f4ff", color: "#3a4566", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, padding: "7px 8px", border: `1px solid ${colors.border}`, textAlign: "center", whiteSpace: "nowrap" };
+          const tdStyle = { padding: "7px 8px", border: `1px solid ${colors.border}`, fontSize: 12, textAlign: "center", verticalAlign: "middle" };
+          return (
+            <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+              {/* Left panel — search + list */}
+              <div style={{ width: 260, flexShrink: 0 }}>
+                <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
+                  <div style={{ background: colors.formBg, borderBottom: `1px solid ${colors.border}`, padding: "12px 16px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 10 }}>Top Sheet ID</div>
+                    <input
+                      type="text"
+                      value={topsheetSearch}
+                      onChange={e => setTopsheetSearch(e.target.value)}
+                      placeholder="Search ID…"
+                      style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, outline: "none" }}
+                    />
+                  </div>
+                  <div style={{ maxHeight: 500, overflowY: "auto" }}>
+                    {allIds.length === 0 ? (
+                      <div style={{ padding: "24px 16px", color: colors.textLight, fontSize: 13, textAlign: "center" }}>No approved records yet.</div>
+                    ) : filtered.length === 0 ? (
+                      <div style={{ padding: "24px 16px", color: colors.textLight, fontSize: 13, textAlign: "center" }}>No match found.</div>
+                    ) : (
+                      filtered.map(id => (
+                        <button key={id} onClick={() => setTopsheetSelected(id)}
+                          style={{ display: "block", width: "100%", textAlign: "left", background: topsheetSelected === id ? "#eef2fb" : "none", border: "none", borderBottom: `1px solid ${colors.border}`, padding: "10px 16px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: topsheetSelected === id ? 700 : 500, color: topsheetSelected === id ? colors.navy : colors.textMid, cursor: "pointer" }}>
+                          {id}
+                          <span style={{ float: "right", fontSize: 11, color: colors.textLight }}>{grouped[id].length} entr{grouped[id].length === 1 ? "y" : "ies"}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right panel — top sheet detail */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {!topsheetSelected ? (
+                  <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "60px 24px", textAlign: "center", color: colors.textLight }}>
+                    Select a Top Sheet ID from the list to view and download.
+                  </div>
+                ) : (() => {
+                  const entries = selectedEntries;
+                  const cluster = entries[0]?.cluster || "";
+                  const rowWidth = entries[0]?.row || "—";
+                  const date = new Date().toLocaleDateString("en-IN");
+                  const totalLength = entries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
+                  const totalArea = entries.reduce((s, e) => s + (parseFloat(e.affectedArea) || 0), 0);
+                  const totalAmount = entries.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
+                  return (
+                    <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
+                      {/* Sheet header */}
+                      <div style={{ background: "#f0f4ff", borderBottom: `1px solid ${colors.border}`, padding: "14px 20px" }}>
+                        <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 15, fontWeight: 700, color: colors.navy, textAlign: "center", marginBottom: 8 }}>{PROJECT_NAME}</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: 12, color: colors.textMid, fontWeight: 600 }}>CLUSTER {cluster} &nbsp;|&nbsp; WIDTH: {rowWidth}m</span>
+                          <span style={{ fontSize: 12, color: colors.textMid, fontWeight: 600 }}>CROP COMPENSATION ABSTRACT</span>
+                          <span style={{ fontSize: 12, color: colors.textMid }}>S.No: <strong>{topsheetSelected}</strong> &nbsp;&nbsp; Date: {date}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+                          <button onClick={() => downloadTopSheetExcel(entries, topsheetSelected, cluster)}
+                            style={{ background: colors.navy, color: "white", border: "none", borderRadius: 5, padding: "7px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                            ↓ Download Excel
+                          </button>
+                        </div>
+                      </div>
+                      {/* Table */}
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead>
+                            <tr>
+                              {["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PROD. IN REQ. AREA (C=AxB)", "RATE/QUINTAL (₹) (D)", "AMOUNT (E=CxD)", "NAME OF LAND OWNER", "PAYMENT MODE", "REMARKS"]
+                                .map(h => <th key={h} style={thStyle}>{h}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {entries.map((e, i) => {
+                              const area = parseFloat(e.affectedArea) || 0;
+                              const yld = parseFloat(e.yield) || 0;
+                              const prodInArea = area && yld ? parseFloat((area * yld).toFixed(3)) : "—";
+                              const landArea = area ? Math.round(area * 10000).toLocaleString("en-IN") : "—";
+                              return (
+                                <tr key={i} style={{ background: i % 2 === 0 ? "#fafbff" : colors.white }}>
+                                  <td style={tdStyle}>{i + 1}</td>
+                                  <td style={tdStyle}>{e.dia || "—"}</td>
+                                  <td style={{ ...tdStyle, textAlign: "left" }}>{e.village || "—"}</td>
+                                  <td style={tdStyle}>{e.junctionFrom}{e.junctionTo ? "-" + e.junctionTo : ""}</td>
+                                  <td style={tdStyle}>{e.chainageFrom || "—"}</td>
+                                  <td style={tdStyle}>{e.chainageTo || "—"}</td>
+                                  <td style={tdStyle}>{e.length || "—"}</td>
+                                  <td style={tdStyle}>{landArea}</td>
+                                  <td style={tdStyle}>{area || "—"}</td>
+                                  <td style={tdStyle}>{e.khasraNo || "—"}</td>
+                                  <td style={tdStyle}>{e.crop || "—"}</td>
+                                  <td style={tdStyle}>{yld || "—"}</td>
+                                  <td style={tdStyle}>{prodInArea}</td>
+                                  <td style={tdStyle}>{e.mandiRate ? parseFloat(e.mandiRate).toLocaleString("en-IN") : "—"}</td>
+                                  <td style={{ ...tdStyle, fontWeight: 600, color: colors.green }}>{e.compensationAmount ? parseFloat(e.compensationAmount).toLocaleString("en-IN") : "—"}</td>
+                                  <td style={{ ...tdStyle, textAlign: "left" }}>{e.landOwnerName || "—"}</td>
+                                  <td style={tdStyle}>{e.paymentMode || "—"}</td>
+                                  <td style={{ ...tdStyle, textAlign: "left", maxWidth: 180 }}>{e.remarks || "—"}</td>
+                                </tr>
+                              );
+                            })}
+                            <tr style={{ background: "#f0f4ff", fontWeight: 700 }}>
+                              <td colSpan={6} style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>TOTAL</td>
+                              <td style={tdStyle}>{totalLength.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</td>
+                              <td style={tdStyle} />
+                              <td style={tdStyle}>{totalArea.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</td>
+                              <td colSpan={5} style={tdStyle} />
+                              <td style={{ ...tdStyle, color: colors.green }}>{totalAmount.toLocaleString("en-IN")}</td>
+                              <td colSpan={3} style={tdStyle} />
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* RTGS Bank Details Section */}
+                      {(() => {
+                        const rtgsEntries = entries.filter(e => e.paymentMode === "RTGS");
+                        if (rtgsEntries.length === 0) return null;
+                        return (
+                          <div style={{ padding: "20px 24px", borderTop: `2px solid ${colors.border}` }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
+                              {rtgsEntries.map((e, i) => (
+                                <div key={i} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: "14px 18px", background: "#fafbff" }}>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: colors.textMid, marginBottom: 10 }}>Bank details for RTGS :</div>
+                                  <div style={{ fontSize: 13, marginBottom: 6 }}><strong>{i + 1})</strong></div>
+                                  <div style={{ fontSize: 13, marginBottom: 4 }}>Account Name - <strong>{e.landOwnerName || e.farmerName || "—"}</strong></div>
+                                  <div style={{ fontSize: 13, marginBottom: 4 }}>Bank Name - <strong>{e.bankName || "—"}</strong></div>
+                                  <div style={{ fontSize: 13, marginBottom: 4 }}>A/c No. - <strong>{e.accountNo || "—"}</strong></div>
+                                  <div style={{ fontSize: 13 }}>IFSC No. - <strong>{e.ifscCode || "—"}</strong></div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ---- LEDGER TAB ---- */}
         {activeTab === "ledger" && (
@@ -1337,7 +1645,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", "Remarks", ""].map(h => (
+                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Payment Mode", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", "Remarks", ""].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -1372,6 +1680,7 @@ export default function App() {
                               <td style={{ padding: "11px 14px" }}>{e.affectedArea}</td>
                               <td style={{ padding: "11px 14px" }}>Rs.{e.mandiRate}</td>
                               <td style={{ padding: "11px 14px" }}>{e.yield}</td>
+                              <td style={{ padding: "11px 14px", fontWeight: e.paymentMode ? 500 : 400, color: e.paymentMode ? colors.text : colors.textLight }}>{e.paymentMode || "—"}</td>
                               <td style={{ padding: "11px 14px" }}>{e.bankName}</td>
                               <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                               <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
@@ -1464,7 +1773,7 @@ export default function App() {
                               />
                               <button onClick={handleAcceptPending} disabled={loading || !generatedApprovalId || selectedPending.size === 0}
                                 style={{ background: generatedApprovalId && selectedPending.size > 0 ? colors.green : "#e8ecf6", color: generatedApprovalId && selectedPending.size > 0 ? "white" : colors.textLight, border: "none", borderRadius: 5, padding: "8px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: generatedApprovalId && selectedPending.size > 0 && !loading ? "pointer" : "not-allowed", opacity: loading ? 0.7 : 1 }}>
-                                {loading ? "Processing…" : "Accept & Download Excel"}
+                                {loading ? "Processing…" : "Accept"}
                               </button>
                             </div>
                           </div>
@@ -1480,7 +1789,7 @@ export default function App() {
                                       onChange={ev => setSelectedPending(ev.target.checked ? new Set(pendingEntries.map(e => e._id)) : new Set())}
                                       style={{ cursor: "pointer" }} />
                                   </th>
-                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Bank", "Account No.", "IFSC", "Document", "Remarks", ""].map(h => (
+                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Payment Mode", "Bank", "Account No.", "IFSC", "Document", "Remarks", ""].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
@@ -1510,6 +1819,7 @@ export default function App() {
                                     <td style={{ padding: "11px 14px" }}>{e.affectedArea}</td>
                                     <td style={{ padding: "11px 14px" }}>Rs.{e.mandiRate}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.yield}</td>
+                                    <td style={{ padding: "11px 14px", fontWeight: e.paymentMode ? 500 : 400, color: e.paymentMode ? colors.text : colors.textLight }}>{e.paymentMode || "—"}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.bankName}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
