@@ -312,6 +312,7 @@ export default function App() {
   const [selectedTopsheetCluster, setSelectedTopsheetCluster] = useState("A");
   const [topsheetSearch, setTopsheetSearch] = useState("");
   const [topsheetSelected, setTopsheetSelected] = useState(null);
+  const [expandedJunctions, setExpandedJunctions] = useState(new Set()); // indices of expanded junction rows (empty = all collapsed)
   const [junctionEdit, setJunctionEdit] = useState(null); // index of row being edited
   const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "", dia: "" });
   const [newJunction, setNewJunction] = useState({ from: "", to: "", length: "", dia: "" });
@@ -1267,9 +1268,19 @@ export default function App() {
                       const completedLength = jEntries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
                       const balanceLength = (parseFloat(j.length) || 0) - completedLength;
 
+                      const isCollapsed = !expandedJunctions.has(idx);
+                      const toggleCollapse = () => setExpandedJunctions(prev => {
+                        const next = new Set(prev);
+                        if (next.has(idx)) next.delete(idx); else next.add(idx);
+                        return next;
+                      });
+
                       const junctionRow = (
-                        <tr key={`j-${idx}`} style={{ background: "#eef2fb", borderBottom: `2px solid ${colors.border}` }}>
-                          <td style={{ padding: "10px 12px", color: colors.textLight, fontWeight: 700, fontSize: 12, textAlign: "right" }}>{idx + 1}</td>
+                        <tr key={`j-${idx}`} onClick={jEntries.length > 0 ? toggleCollapse : undefined} style={{ background: "#eef2fb", borderBottom: `2px solid ${colors.border}`, cursor: jEntries.length > 0 ? "pointer" : "default" }}>
+                          <td style={{ padding: "10px 12px", color: colors.textLight, fontWeight: 700, fontSize: 12, textAlign: "right" }}>
+                            {jEntries.length > 0 && <span style={{ marginRight: 4, fontSize: 10, color: colors.textLight }}>{isCollapsed ? "▶" : "▼"}</span>}
+                            {idx + 1}
+                          </td>
                           {junctionEdit === idx ? (
                             <>
                               <td style={{ padding: "6px 12px" }}>
@@ -1308,25 +1319,25 @@ export default function App() {
                               </td>
                               <td colSpan={3} />
                               <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
-                                <button onClick={() => { setJunctionEdit(idx); setJunctionEditForm({ from: j.from, to: j.to, length: String(j.length), dia: String(j.dia ?? "") }); }}
+                                <button onClick={(e) => { e.stopPropagation(); setJunctionEdit(idx); setJunctionEditForm({ from: j.from, to: j.to, length: String(j.length), dia: String(j.dia ?? "") }); }}
                                   style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 11, fontWeight: 600, padding: "3px 10px", cursor: "pointer", marginRight: 4, fontFamily: "'Source Sans 3', sans-serif" }}>Edit</button>
                                 {junctionDeleteConfirm === idx ? (
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                                     <span style={{ fontSize: 11, color: "#dc2626", fontWeight: 600 }}>Confirm?</span>
-                                    <button onClick={() => { deleteJunction(idx); setJunctionDeleteConfirm(null); }}
+                                    <button onClick={(e) => { e.stopPropagation(); deleteJunction(idx); setJunctionDeleteConfirm(null); }}
                                       style={{ background: "#dc2626", border: "none", borderRadius: 4, color: "#fff", fontSize: 11, fontWeight: 600, padding: "3px 8px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
-                                    <button onClick={() => setJunctionDeleteConfirm(null)}
+                                    <button onClick={(e) => { e.stopPropagation(); setJunctionDeleteConfirm(null); }}
                                       style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.text, fontSize: 11, fontWeight: 600, padding: "3px 8px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
                                   </span>
                                 ) : (
-                                  <button onClick={() => setJunctionDeleteConfirm(idx)}
+                                  <button onClick={(e) => { e.stopPropagation(); setJunctionDeleteConfirm(idx); }}
                                     style={{ background: "none", border: "1px solid #fca5a5", borderRadius: 4, color: "#dc2626", fontSize: 11, fontWeight: 600, padding: "3px 10px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Delete</button>
                                 )}
                               </td>
                               <td />
                               <td style={{ padding: "10px 12px" }}>
                                 {jEntries.length > 0 && (
-                                  <button onClick={() => downloadJunctionExcel(j.from, j.to, jEntries)}
+                                  <button onClick={(e) => { e.stopPropagation(); downloadJunctionExcel(j.from, j.to, jEntries); }}
                                     style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontSize: 11, fontWeight: 600, padding: "3px 10px", cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'Source Sans 3', sans-serif" }}>↓ Excel</button>
                                 )}
                               </td>
@@ -1359,7 +1370,7 @@ export default function App() {
                         </tr>
                       ));
 
-                      return [junctionRow, ...entryRows];
+                      return [junctionRow, ...(isCollapsed ? [] : entryRows)];
                     })}
                     {/* Add new junction row */}
                     <tr style={{ borderTop: `2px solid ${colors.border}`, background: "#f9fafb" }}>
