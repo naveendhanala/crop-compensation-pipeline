@@ -749,7 +749,7 @@ export default function App() {
       </div>
 
       {/* MAIN */}
-      <div style={{ padding: "30px 40px", maxWidth: 1140, margin: "0 auto" }}>
+      <div style={{ padding: "30px 24px" }}>
 
         {/* ---- ENTRY TAB ---- */}
         {activeTab === "entry" && (
