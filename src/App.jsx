@@ -39,18 +39,8 @@ const GROUPS = [
 
 const EMPTY_FORM = Object.fromEntries(FIELDS.map(f => [f.key, ""]));
 
-// Parses chainage values in both "1+100" (= 1100m) and plain decimal "24.250" formats
-function parseChain(val) {
-  const s = String(val || "").trim();
-  if (s.includes("+")) {
-    const [km, m] = s.split("+");
-    return parseFloat(km) * 1000 + (parseFloat(m) || 0);
-  }
-  return parseFloat(s) || 0;
-}
-
 function chainageOverlap(aFrom, aTo, bFrom, bTo) {
-  return !(parseChain(aTo) <= parseChain(bFrom) || parseChain(bTo) <= parseChain(aFrom));
+  return !(parseFloat(aTo) <= parseFloat(bFrom) || parseFloat(bTo) <= parseFloat(aFrom));
 }
 
 function checkDuplicates(form, ledger) {
@@ -377,37 +367,6 @@ export default function App() {
 
   const handleFormChange = (key, val) => {
     const updated = { ...form, [key]: val };
-    // Auto-calculate length from chainage difference
-    if (key === "chainageFrom" || key === "chainageTo") {
-      const from = parseChain(key === "chainageFrom" ? val : updated.chainageFrom);
-      const to = parseChain(key === "chainageTo" ? val : updated.chainageTo);
-      if (from && to && to > from) {
-        updated.length = String(parseFloat((to - from).toFixed(3)));
-      } else {
-        updated.length = "";
-      }
-    }
-    // Auto-calculate affectedArea from length and row
-    if (key === "chainageFrom" || key === "chainageTo" || key === "length" || key === "row") {
-      const len = parseFloat(updated.length) || 0;
-      const row = parseFloat(key === "row" ? val : updated.row) || 0;
-      if (len && row) {
-        updated.affectedArea = String(parseFloat((len * row / 10000).toFixed(6)));
-      } else {
-        updated.affectedArea = "";
-      }
-    }
-    // Auto-recalculate compensation if area, mandiRate, or yield changed
-    if (["chainageFrom", "chainageTo", "length", "row", "mandiRate", "yield"].includes(key)) {
-      const area = parseFloat(updated.affectedArea) || 0;
-      const mandi = parseFloat(updated.mandiRate) || 0;
-      const yld = parseFloat(updated.yield) || 0;
-      if (area && mandi && yld) {
-        updated.compensationAmount = String(parseFloat((area * mandi * yld).toFixed(2)));
-      } else {
-        updated.compensationAmount = "";
-      }
-    }
     setForm(updated);
     setCalcFlags(verifyCalculations(updated));
   };
@@ -952,9 +911,8 @@ export default function App() {
                               <input
                                 value={form[f.key]}
                                 onChange={e => handleFormChange(f.key, e.target.value)}
-                                readOnly={f.key === "length" || f.key === "affectedArea"}
-                                placeholder={f.key === "length" ? "Auto from chainage" : f.key === "affectedArea" ? "Auto from length × ROW" : "—"}
-                                style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: (f.key === "length" || f.key === "affectedArea") ? colors.textMid : colors.text, background: (f.key === "length" || f.key === "affectedArea") ? colors.formBg : colors.white }}
+                                placeholder="—"
+                                style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white }}
                               />
                             )}
                             {!editingEntry && f.key === "length" && form._docLength !== undefined && parseFloat(form.length) !== form._docLength && (
