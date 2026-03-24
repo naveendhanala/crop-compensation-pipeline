@@ -39,8 +39,18 @@ const GROUPS = [
 
 const EMPTY_FORM = Object.fromEntries(FIELDS.map(f => [f.key, ""]));
 
+// Parses chainage values in both "1+100" (= 1100m) and plain decimal "24.250" formats
+function parseChain(val) {
+  const s = String(val || "").trim();
+  if (s.includes("+")) {
+    const [km, m] = s.split("+");
+    return parseFloat(km) * 1000 + (parseFloat(m) || 0);
+  }
+  return parseFloat(s) || 0;
+}
+
 function chainageOverlap(aFrom, aTo, bFrom, bTo) {
-  return !(parseFloat(aTo) <= parseFloat(bFrom) || parseFloat(bTo) <= parseFloat(aFrom));
+  return !(parseChain(aTo) <= parseChain(bFrom) || parseChain(bTo) <= parseChain(aFrom));
 }
 
 function checkDuplicates(form, ledger) {
@@ -369,8 +379,8 @@ export default function App() {
     const updated = { ...form, [key]: val };
     // Auto-calculate length from chainage difference
     if (key === "chainageFrom" || key === "chainageTo") {
-      const from = parseFloat(key === "chainageFrom" ? val : updated.chainageFrom) || 0;
-      const to = parseFloat(key === "chainageTo" ? val : updated.chainageTo) || 0;
+      const from = parseChain(key === "chainageFrom" ? val : updated.chainageFrom);
+      const to = parseChain(key === "chainageTo" ? val : updated.chainageTo);
       if (from && to && to > from) {
         updated.length = String(parseFloat((to - from).toFixed(3)));
       } else {
