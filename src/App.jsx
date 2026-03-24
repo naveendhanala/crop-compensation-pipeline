@@ -317,13 +317,27 @@ export default function App() {
       const result = await extractFromPDF(base64);
       const rawEntries = result.entries || [];
       const pdfTotal = result.pdfTotalAmount || null;
-      // Calculate compensationAmount per entry from formula: affectedArea × mandiRate × yield
       const enriched = rawEntries.map(e => {
-        const area = parseFloat(e.affectedArea) || 0;
+        // Auto-calculate length and affectedArea from formulas
+        const chainFrom = parseFloat(e.chainageFrom) || 0;
+        const chainTo = parseFloat(e.chainageTo) || 0;
+        const row = parseFloat(e.row) || 0;
+        const calcLength = parseFloat((chainTo - chainFrom).toFixed(3));
+        const calcArea = row ? parseFloat((calcLength * row / 10000).toFixed(6)) : 0;
+        // Keep AI-extracted values for mismatch comparison
+        const _docLength = parseFloat(e.length) || 0;
+        const _docAffectedArea = parseFloat(e.affectedArea) || 0;
+        // Calculate compensationAmount from formula: affectedArea × mandiRate × yield
         const mandi = parseFloat(e.mandiRate) || 0;
         const yld = parseFloat(e.yield) || 0;
-        const calcComp = area && mandi && yld ? parseFloat((area * mandi * yld).toFixed(2)) : 0;
-        return { ...EMPTY_FORM, ...e, compensationAmount: calcComp ? String(calcComp) : "" };
+        const calcComp = calcArea && mandi && yld ? parseFloat((calcArea * mandi * yld).toFixed(2)) : 0;
+        return {
+          ...EMPTY_FORM, ...e,
+          length: calcLength ? String(calcLength) : "",
+          affectedArea: calcArea ? String(calcArea) : "",
+          compensationAmount: calcComp ? String(calcComp) : "",
+          _docLength, _docAffectedArea,
+        };
       });
       setExtractedEntries(enriched);
       setBatchPdfTotal(pdfTotal);
@@ -887,6 +901,12 @@ export default function App() {
                                 placeholder="—"
                                 style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white }}
                               />
+                            )}
+                            {!editingEntry && f.key === "length" && form._docLength !== undefined && parseFloat(form.length) !== form._docLength && (
+                              <div style={{ color: "#dc2626", fontSize: 11, marginTop: 4, fontWeight: 600 }}>Mismatch with the document (doc: {form._docLength})</div>
+                            )}
+                            {!editingEntry && f.key === "affectedArea" && form._docAffectedArea !== undefined && parseFloat(form.affectedArea) !== form._docAffectedArea && (
+                              <div style={{ color: "#dc2626", fontSize: 11, marginTop: 4, fontWeight: 600 }}>Mismatch with the document (doc: {form._docAffectedArea})</div>
                             )}
                           </div>
                         ))}
