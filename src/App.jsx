@@ -16,6 +16,7 @@ const FIELDS = [
   { key: "length", label: "Length (m)", group: "pipeline" },
   { key: "dia", label: "Diameter (MM)", group: "pipeline" },
   { key: "row", label: "ROW (m)", group: "pipeline" },
+  { key: "remarks", label: "Remarks", group: "pipeline", type: "textarea" },
   { key: "landOwnerName", label: "Land Owner Name", group: "parties" },
   { key: "farmerName", label: "Farmer / Lessee Name", group: "parties" },
   { key: "crop", label: "Crop", group: "compensation" },
@@ -298,6 +299,7 @@ export default function App() {
         accountNo: row.account_no || '',
         ifscCode: row.ifsc_code || '',
         paymentDetails: row.payment_details || '',
+        remarks: row.remarks || '',
         documentPath: row.document_path || null,
       })));
     };
@@ -445,6 +447,7 @@ export default function App() {
           bank_name: fields.bankName || null,
           account_no: fields.accountNo || null,
           ifsc_code: fields.ifscCode || null,
+          remarks: fields.remarks || null,
           ...(documentPath ? { document_path: documentPath } : {}),
         })
         .eq("id", _id);
@@ -480,6 +483,7 @@ export default function App() {
           bank_name: fields.bankName || null,
           account_no: fields.accountNo || null,
           ifsc_code: fields.ifscCode || null,
+          remarks: fields.remarks || null,
           payment_details: null,
         })
         .select("id")
@@ -554,6 +558,7 @@ export default function App() {
           bank_name: fields.bankName || null,
           account_no: fields.accountNo || null,
           ifsc_code: fields.ifscCode || null,
+          remarks: fields.remarks || null,
           payment_details: null,
           document_path: sharedDocPath,
         })
@@ -877,7 +882,15 @@ export default function App() {
                         {gFields.map((f, idx) => (
                           <div key={f.key} style={{ padding: "14px 20px", borderRight: (idx + 1) % 3 === 0 ? "none" : `1px solid ${colors.borderLight}`, borderBottom: idx < gFields.length - Math.ceil(gFields.length / 3) * (gFields.length > 3 ? 1 : 0) ? `1px solid ${colors.borderLight}` : "none" }}>
                             <label style={{ fontSize: 10.5, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, display: "block" }}>{f.label}</label>
-                            {f.type === "select" ? (() => {
+                            {f.type === "textarea" ? (
+                              <textarea
+                                value={form[f.key]}
+                                onChange={e => handleFormChange(f.key, e.target.value)}
+                                placeholder="—"
+                                rows={3}
+                                style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, resize: "vertical", boxSizing: "border-box" }}
+                              />
+                            ) : f.type === "select" ? (() => {
                               const clusterJns = clusterJunctions[form.cluster] || [];
                               const opts = f.options
                                 ? f.options
@@ -1324,7 +1337,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", ""].map(h => (
+                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", "Remarks", ""].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -1354,11 +1367,11 @@ export default function App() {
                               <td style={{ padding: "11px 14px" }}>{e.row}m</td>
                               <td style={{ padding: "11px 14px" }}>{e.landOwnerName}</td>
                               <td style={{ padding: "11px 14px", fontWeight: 500, color: colors.text }}>{e.farmerName}</td>
+                              <td style={{ padding: "11px 14px", color: colors.green, fontWeight: 600 }}>{e.compensationAmount ? `Rs. ${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : "—"}</td>
                               <td style={{ padding: "11px 14px" }}>{e.crop}</td>
                               <td style={{ padding: "11px 14px" }}>{e.affectedArea}</td>
                               <td style={{ padding: "11px 14px" }}>Rs.{e.mandiRate}</td>
                               <td style={{ padding: "11px 14px" }}>{e.yield}</td>
-                              <td style={{ padding: "11px 14px", color: colors.green, fontWeight: 600 }}>{e.compensationAmount ? `Rs. ${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : "—"}</td>
                               <td style={{ padding: "11px 14px" }}>{e.bankName}</td>
                               <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                               <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
@@ -1367,6 +1380,9 @@ export default function App() {
                                 {e.documentPath
                                   ? <a href={getDocumentUrl(e.documentPath)} target="_blank" rel="noopener noreferrer" style={{ color: colors.navy, fontWeight: 600, fontSize: 12, textDecoration: "none" }}>📎 View</a>
                                   : <span style={{ color: colors.textLight, fontSize: 12 }}>—</span>}
+                              </td>
+                              <td style={{ padding: "11px 14px", maxWidth: 160, color: e.remarks ? colors.text : colors.textLight, fontStyle: e.remarks ? "normal" : "italic" }} title={e.remarks || ""}>
+                                {e.remarks ? (e.remarks.length > 30 ? e.remarks.slice(0, 30) + "…" : e.remarks) : "—"}
                               </td>
                               <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                 <button onClick={() => handleEdit(e)}
@@ -1464,7 +1480,7 @@ export default function App() {
                                       onChange={ev => setSelectedPending(ev.target.checked ? new Set(pendingEntries.map(e => e._id)) : new Set())}
                                       style={{ cursor: "pointer" }} />
                                   </th>
-                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Compensation", "Bank", "Account No.", "IFSC", "Document", ""].map(h => (
+                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Bank", "Account No.", "IFSC", "Document", "Remarks", ""].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
@@ -1489,11 +1505,11 @@ export default function App() {
                                     <td style={{ padding: "11px 14px" }}>{e.row}m</td>
                                     <td style={{ padding: "11px 14px" }}>{e.landOwnerName}</td>
                                     <td style={{ padding: "11px 14px", fontWeight: 500, color: colors.text }}>{e.farmerName}</td>
+                                    <td style={{ padding: "11px 14px", color: colors.green, fontWeight: 600 }}>{e.compensationAmount ? `Rs. ${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : "—"}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.crop}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.affectedArea}</td>
                                     <td style={{ padding: "11px 14px" }}>Rs.{e.mandiRate}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.yield}</td>
-                                    <td style={{ padding: "11px 14px", color: colors.green, fontWeight: 600 }}>{e.compensationAmount ? `Rs. ${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : "—"}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.bankName}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.accountNo}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.ifscCode}</td>
@@ -1501,6 +1517,9 @@ export default function App() {
                                       {e.documentPath
                                         ? <a href={getDocumentUrl(e.documentPath)} target="_blank" rel="noopener noreferrer" style={{ color: colors.navy, fontWeight: 600, fontSize: 12, textDecoration: "none" }}>📎 View</a>
                                         : <span style={{ color: colors.textLight, fontSize: 12 }}>—</span>}
+                                    </td>
+                                    <td style={{ padding: "11px 14px", maxWidth: 160, color: e.remarks ? colors.text : colors.textLight, fontStyle: e.remarks ? "normal" : "italic" }} title={e.remarks || ""}>
+                                      {e.remarks ? (e.remarks.length > 30 ? e.remarks.slice(0, 30) + "…" : e.remarks) : "—"}
                                     </td>
                                     <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                       <button onClick={() => handleEdit(e)}
