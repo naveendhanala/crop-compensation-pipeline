@@ -215,13 +215,13 @@ const PROJECT_NAME = "CHINKI BORAS BARRAGE COMBINED MULTIPURPOSE PROJECT";
 function downloadTopSheetExcel(entries, approvalId, cluster) {
   const rowWidth = entries[0]?.row || "";
   const date = entries[0]?.date || new Date().toLocaleDateString("en-IN");
-  const headers = ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PRODUCTIVITY IN REQUIRED AREA (C=AxB)", "RATE/QUINTAL (\u20b9) (D)", "AMOUNT (E=CxD)", "NAME OF LAND OWNER", "PAYMENT MODE", "REMARKS"];
+  const headers = ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PRODUCTIVITY IN REQUIRED AREA (C=AxB)", "RATE/QUINTAL (\u20b9) (D)", "AMOUNT (E=CxD)", "FARMER / LESSEE NAME", "PAYMENT MODE", "REMARKS"];
   const rows = entries.map((e, i) => {
     const area = parseFloat(e.affectedArea) || 0;
     const yld = parseFloat(e.yield) || 0;
     const prodInArea = area && yld ? parseFloat((area * yld).toFixed(3)) : "";
     const landArea = area ? Math.round(area * 10000) : "";
-    return [i + 1, e.dia || "", e.village || "", `${e.junctionFrom || ""}${e.junctionTo ? "-" + e.junctionTo : ""}`, e.chainageFrom || "", e.chainageTo || "", e.length || "", e.row || "", landArea, area || "", e.khasraNo || "", e.crop || "", yld || "", prodInArea, e.mandiRate || "", e.compensationAmount || "", e.landOwnerName || "", e.paymentMode || "", e.remarks || ""];
+    return [i + 1, e.dia || "", e.village || "", `${e.junctionFrom || ""}${e.junctionTo ? "-" + e.junctionTo : ""}`, e.chainageFrom || "", e.chainageTo || "", e.length || "", e.row || "", landArea, area || "", e.khasraNo || "", e.crop || "", yld || "", prodInArea, e.mandiRate || "", e.compensationAmount || "", e.farmerName || "", e.paymentMode || "", e.remarks || ""];
   });
   const totalLength = entries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
   const totalArea = entries.reduce((s, e) => s + (parseFloat(e.affectedArea) || 0), 0);
@@ -1529,7 +1529,7 @@ export default function App() {
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                           <thead>
                             <tr>
-                              {["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PROD. IN REQ. AREA (C=AxB)", "RATE/QUINTAL (₹) (D)", "AMOUNT (E=CxD)", "NAME OF LAND OWNER", "PAYMENT MODE", "REMARKS"]
+                              {["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PROD. IN REQ. AREA (C=AxB)", "RATE/QUINTAL (₹) (D)", "AMOUNT (E=CxD)", "FARMER / LESSEE NAME", "PAYMENT MODE", "REMARKS"]
                                 .map(h => <th key={h} style={thStyle}>{h}</th>)}
                             </tr>
                           </thead>
@@ -1557,7 +1557,7 @@ export default function App() {
                                   <td style={tdStyle}>{prodInArea}</td>
                                   <td style={tdStyle}>{e.mandiRate ? parseFloat(e.mandiRate).toLocaleString("en-IN") : "—"}</td>
                                   <td style={{ ...tdStyle, fontWeight: 600, color: colors.green }}>{e.compensationAmount ? parseFloat(e.compensationAmount).toLocaleString("en-IN") : "—"}</td>
-                                  <td style={{ ...tdStyle, textAlign: "left" }}>{e.landOwnerName || "—"}</td>
+                                  <td style={{ ...tdStyle, textAlign: "left" }}>{e.farmerName || "—"}</td>
                                   <td style={tdStyle}>{e.paymentMode || "—"}</td>
                                   <td style={{ ...tdStyle, textAlign: "left", maxWidth: 180 }}>{e.remarks || "—"}</td>
                                 </tr>
