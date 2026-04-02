@@ -44,21 +44,25 @@ function chainageOverlap(aFrom, aTo, bFrom, bTo) {
   return !(parseFloat(aTo) <= parseFloat(bFrom) || parseFloat(bTo) <= parseFloat(aFrom));
 }
 
-function checkDuplicates(form, ledger) {
+function checkDuplicates(form, ledger, clusterJunctions) {
   const warnings = [];
   ledger.forEach((entry) => {
     const sameCluster = !form.cluster || !entry.cluster || entry.cluster === form.cluster;
+    // Duplicate Chainage/Node Range: same junction from/to + overlapping chainage, same cluster
     if (
       sameCluster &&
-      entry.khasraNo.trim().toLowerCase() === form.khasraNo.trim().toLowerCase() &&
+      form.junctionFrom && form.junctionTo &&
+      entry.junctionFrom && entry.junctionTo &&
+      entry.junctionFrom.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
+      entry.junctionTo.trim().toLowerCase() === form.junctionTo.trim().toLowerCase() &&
       form.chainageFrom && form.chainageTo &&
       entry.chainageFrom && entry.chainageTo &&
       chainageOverlap(form.chainageFrom, form.chainageTo, entry.chainageFrom, entry.chainageTo)
     ) {
       warnings.push({
-        type: "Duplicate Chainage Range",
+        type: "Duplicate Chainage/Node Range",
         severity: "high",
-        message: `Khasra No. "${form.khasraNo}" with chainage ${form.chainageFrom}–${form.chainageTo} overlaps with Entry #${entry.srNo} (chainage ${entry.chainageFrom}–${entry.chainageTo}, Farmer: ${entry.farmerName}).`,
+        message: `Junction ${form.junctionFrom}→${form.junctionTo} with chainage ${form.chainageFrom}–${form.chainageTo} overlaps with Entry #${entry.srNo} (chainage ${entry.chainageFrom}–${entry.chainageTo}, Khasra: ${entry.khasraNo}, Farmer: ${entry.farmerName}).`,
       });
     }
     if (
@@ -86,6 +90,53 @@ function checkDuplicates(form, ledger) {
       });
     }
   });
+  // Diameter Mismatch: compare entry dia with junctions master list
+  if (form.cluster && form.junctionFrom && form.junctionTo && form.dia) {
+    const clusterJns = clusterJunctions[form.cluster] || [];
+    const matchingJunction = clusterJns.find(
+      j => j.from.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
+           j.to.trim().toLowerCase() === form.junctionTo.trim().toLowerCase()
+    );
+    if (matchingJunction && matchingJunction.dia) {
+      const entryDia = parseFloat(form.dia);
+      const masterDia = parseFloat(matchingJunction.dia);
+      if (!isNaN(entryDia) && !isNaN(masterDia) && Math.abs(entryDia - masterDia) > 0.001) {
+        warnings.push({
+          type: "Diameter Mismatch",
+          severity: "high",
+          message: `Diameter entered (${form.dia} mm) does not match the master list for ${form.junctionFrom}→${form.junctionTo} in Cluster ${form.cluster} (expected: ${matchingJunction.dia} mm).`,
+        });
+      }
+    }
+  }
+  // Excess Length: current + existing ledger entries for same cluster + junction should not exceed node length
+  if (form.cluster && form.junctionFrom && form.junctionTo && form.length) {
+    const clusterJns = clusterJunctions[form.cluster] || [];
+    const matchingJunction = clusterJns.find(
+      j => j.from.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
+           j.to.trim().toLowerCase() === form.junctionTo.trim().toLowerCase()
+    );
+    if (matchingJunction && matchingJunction.length) {
+      const nodeLength = parseFloat(matchingJunction.length);
+      const currentLength = parseFloat(form.length) || 0;
+      const existingLength = ledger
+        .filter(e =>
+          e.cluster === form.cluster &&
+          e.junctionFrom && e.junctionTo &&
+          e.junctionFrom.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
+          e.junctionTo.trim().toLowerCase() === form.junctionTo.trim().toLowerCase()
+        )
+        .reduce((sum, e) => sum + (parseFloat(e.length) || 0), 0);
+      const totalLength = currentLength + existingLength;
+      if (totalLength > nodeLength) {
+        warnings.push({
+          type: "Excess Length",
+          severity: "high",
+          message: `Total length for ${form.junctionFrom}→${form.junctionTo} in Cluster ${form.cluster} would be ${totalLength.toFixed(2)} m, exceeding the node length of ${nodeLength} m by ${(totalLength - nodeLength).toFixed(2)} m. (This entry: ${currentLength} m, Already recorded: ${existingLength.toFixed(2)} m)`,
+        });
+      }
+    }
+  }
   return warnings;
 }
 
@@ -487,14 +538,14 @@ export default function App() {
     if (editingEntry) {
       // Edit mode: check against ledger minus the entry being edited
       const ledgerToCheck = ledger.filter(e => e.srNo !== editingEntry.srNo);
-      const dups = checkDuplicates(form, ledgerToCheck);
+      const dups = checkDuplicates(form, ledgerToCheck, clusterJunctions);
       const cFlags = calcFlags.map(f => ({ ...f, severity: "medium" }));
       const all = [...dups, ...cFlags];
       if (all.length > 0) { setWarnings(all); setPendingEntry(form); setStep("warning"); }
       else commitEntry(form);
     } else {
       // Batch new-entry mode: check against existing ledger + already-confirmed batch entries
-      const dups = checkDuplicates(form, [...ledger, ...batchEntries]);
+      const dups = checkDuplicates(form, [...ledger, ...batchEntries], clusterJunctions);
       const cFlags = calcFlags.map(f => ({ ...f, severity: "medium" }));
       const all = [...dups, ...cFlags];
       if (all.length > 0) { setWarnings(all); setPendingEntry(form); setStep("warning"); }
