@@ -234,7 +234,7 @@ function downloadTopSheetExcel(entries, approvalId, cluster) {
         <td style="border:1px solid #ccc;padding:10px;width:50%;vertical-align:top">
           <b>Bank details for RTGS :</b><br/>
           <b>${i + 1})</b><br/>
-          Account Name - <b>${e.landOwnerName || e.farmerName || ""}</b><br/>
+          Account Name - <b>${e.farmerName || e.landOwnerName || ""}</b><br/>
           Bank Name - <b>${e.bankName || ""}</b><br/>
           A/c No. - <b>${e.accountNo || ""}</b><br/>
           IFSC No. - <b>${e.ifscCode || ""}</b>
@@ -265,7 +265,7 @@ function downloadTopSheetExcel(entries, approvalId, cluster) {
       <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
       <tbody>
         ${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}
-        <tr><td colspan="6" style="font-weight:bold;text-align:right">TOTAL</td><td style="font-weight:bold">${totalLength}</td><td></td><td style="font-weight:bold">${totalArea.toFixed(3)}</td><td colspan="5"></td><td style="font-weight:bold">${totalAmount.toLocaleString("en-IN")}</td><td colspan="3"></td></tr>
+        <tr><td colspan="6" style="font-weight:bold;text-align:right">TOTAL</td><td style="font-weight:bold">${totalLength}</td><td></td><td style="font-weight:bold">${totalArea.toFixed(3)}</td><td colspan="6"></td><td style="font-weight:bold">${totalAmount.toLocaleString("en-IN")}</td><td colspan="3"></td></tr>
       </tbody>
     </table>
     ${rtgsSection}
@@ -1568,7 +1568,7 @@ export default function App() {
                               <td style={tdStyle}>{totalLength.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</td>
                               <td style={tdStyle} />
                               <td style={tdStyle}>{totalArea.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</td>
-                              <td colSpan={5} style={tdStyle} />
+                              <td colSpan={6} style={tdStyle} />
                               <td style={{ ...tdStyle, color: colors.green }}>{totalAmount.toLocaleString("en-IN")}</td>
                               <td colSpan={3} style={tdStyle} />
                             </tr>
@@ -1586,7 +1586,7 @@ export default function App() {
                                 <div key={i} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: "14px 18px", background: "#fafbff" }}>
                                   <div style={{ fontSize: 12, fontWeight: 700, color: colors.textMid, marginBottom: 10 }}>Bank details for RTGS :</div>
                                   <div style={{ fontSize: 13, marginBottom: 6 }}><strong>{i + 1})</strong></div>
-                                  <div style={{ fontSize: 13, marginBottom: 4 }}>Account Name - <strong>{e.landOwnerName || e.farmerName || "—"}</strong></div>
+                                  <div style={{ fontSize: 13, marginBottom: 4 }}>Account Name - <strong>{e.farmerName || e.landOwnerName || "—"}</strong></div>
                                   <div style={{ fontSize: 13, marginBottom: 4 }}>Bank Name - <strong>{e.bankName || "—"}</strong></div>
                                   <div style={{ fontSize: 13, marginBottom: 4 }}>A/c No. - <strong>{e.accountNo || "—"}</strong></div>
                                   <div style={{ fontSize: 13 }}>IFSC No. - <strong>{e.ifscCode || "—"}</strong></div>
