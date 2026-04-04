@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { supabase } from "./supabaseClient";
 
 const colors = {
   navy: "#1b3068", gold: "#c8973a",
@@ -10,16 +11,22 @@ export default function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const validUser = import.meta.env.VITE_APP_USERNAME;
-    const validPass = import.meta.env.VITE_APP_PASSWORD;
-    if (username === validUser && password === validPass) {
-      onLogin();
-    } else {
-      setError("Invalid username or password.");
-    }
+    setLoading(true);
+    setError("");
+    const { data, error: dbErr } = await supabase
+      .from("app_users")
+      .select("id, username, role")
+      .eq("username", username.trim())
+      .eq("password", password)
+      .maybeSingle();
+    setLoading(false);
+    if (dbErr) { setError("Login service unavailable. Please try again."); return; }
+    if (!data) { setError("Invalid username or password."); return; }
+    onLogin(data);
   };
 
   return (
@@ -72,9 +79,10 @@ export default function Login({ onLogin }) {
             </div>
             <button
               type="submit"
-              style={{ width: "100%", background: colors.navy, color: "white", border: "none", borderRadius: 6, padding: "12px 0", fontFamily: "'Source Sans 3', sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+              disabled={loading}
+              style={{ width: "100%", background: colors.navy, color: "white", border: "none", borderRadius: 6, padding: "12px 0", fontFamily: "'Source Sans 3', sans-serif", fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}
             >
-              Sign In
+              {loading ? "Signing in…" : "Sign In"}
             </button>
           </form>
         </div>

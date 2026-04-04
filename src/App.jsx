@@ -261,6 +261,42 @@ function downloadJunctionExcel(jFrom, jTo, entries) {
   URL.revokeObjectURL(url);
 }
 
+function downloadAllJunctionsExcel(cluster, junctions, ledger) {
+  const headers = ["#", "Junction From", "Junction To", "Dia (MM)", "Node Length (m)", "Complete (m)", "Balance (m)", "Ch. From", "Ch. To", "Length (m)", "Amount (Rs.)", "Farmer Name", "Top Sheet No", "Remarks"];
+  const rows = [];
+  junctions.forEach((j, idx) => {
+    const entries = ledger.filter(e => e.cluster === cluster && e.junctionFrom === j.from && e.junctionTo === j.to);
+    const completedLen = entries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
+    const balance = (parseFloat(j.length) || 0) - completedLen;
+    if (entries.length === 0) {
+      rows.push([idx + 1, j.from, j.to, j.dia || "", j.length || "", "", balance.toFixed(3), "", "", "", "", "", "", ""]);
+    } else {
+      entries.forEach((e, ei) => {
+        rows.push([
+          ei === 0 ? idx + 1 : "",
+          ei === 0 ? j.from : "",
+          ei === 0 ? j.to : "",
+          ei === 0 ? (j.dia || "") : "",
+          ei === 0 ? (j.length || "") : "",
+          ei === 0 ? completedLen.toFixed(3) : "",
+          ei === 0 ? balance.toFixed(3) : "",
+          e.chainageFrom || "", e.chainageTo || "", e.length || "",
+          e.compensationAmount || "", e.farmerName || "",
+          e.approvalId || "Pending", e.remarks || "",
+        ]);
+      });
+    }
+  });
+  const tableHTML = `<html><head><meta charset="UTF-8"></head><body><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+  const blob = new Blob([tableHTML], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `junctions_cluster_${cluster}_${new Date().toISOString().split("T")[0]}.xls`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const PROJECT_NAME = "CHINKI BORAS BARRAGE COMBINED MULTIPURPOSE PROJECT";
 
 function downloadTopSheetExcel(entries, approvalId, cluster) {
@@ -344,7 +380,7 @@ function exportToExcel(entries, approvalId) {
 }
 
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [editingEntry, setEditingEntry] = useState(null); // null = new, otherwise entry being edited
   const [form, setForm] = useState(EMPTY_FORM);
@@ -384,7 +420,7 @@ export default function App() {
 
   // Load junctions from Supabase when user logs in or switches to junctions tab
   useEffect(() => {
-    if (!loggedIn) return;
+    if (!currentUser) return;
     const fetchAllJunctions = async () => {
       const pageSize = 1000;
       let allData = [];
@@ -404,11 +440,11 @@ export default function App() {
       setClusterJunctions(grouped);
     };
     fetchAllJunctions();
-  }, [loggedIn, activeTab === "junctions"]);
+  }, [!!currentUser, activeTab === "junctions"]);
 
   // Load ledger from Supabase when user logs in
   useEffect(() => {
-    if (!loggedIn) return;
+    if (!currentUser) return;
     const fetchAllLedger = async () => {
       const pageSize = 1000;
       let allData = [];
@@ -453,7 +489,40 @@ export default function App() {
       })));
     };
     fetchAllLedger();
-  }, [loggedIn]);
+  }, [!!currentUser]);
+
+  // User management state (super-admin only)
+  const [userMgmtUsers, setUserMgmtUsers] = useState([]);
+  const [userMgmtForms, setUserMgmtForms] = useState({});
+  const [userMgmtSaving, setUserMgmtSaving] = useState(null);
+  const [userMgmtMsg, setUserMgmtMsg] = useState("");
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== "super-admin" || activeTab !== "usermgmt") return;
+    supabase.from("app_users").select("id, username, role").order("id").then(({ data }) => {
+      if (!data) return;
+      setUserMgmtUsers(data);
+      const forms = {};
+      data.forEach(u => { forms[u.id] = { username: u.username, password: "" }; });
+      setUserMgmtForms(forms);
+      setUserMgmtMsg("");
+    });
+  }, [currentUser, activeTab]);
+
+  const saveUserCredentials = async (userId) => {
+    const f = userMgmtForms[userId];
+    if (!f || !f.username.trim()) return;
+    setUserMgmtSaving(userId);
+    setUserMgmtMsg("");
+    const updates = { username: f.username.trim() };
+    if (f.password.trim()) updates.password = f.password.trim();
+    const { error } = await supabase.from("app_users").update(updates).eq("id", userId);
+    setUserMgmtSaving(null);
+    if (error) { setUserMgmtMsg(`Error: ${error.message}`); return; }
+    setUserMgmtMsg("Credentials updated successfully.");
+    setUserMgmtUsers(prev => prev.map(u => u.id === userId ? { ...u, username: updates.username } : u));
+    setUserMgmtForms(prev => ({ ...prev, [userId]: { ...prev[userId], password: "" } }));
+  };
 
   const handleFile = useCallback(async (file) => {
     if (!file || file.type !== "application/pdf") { setError("Please upload a valid PDF file."); return; }
@@ -512,7 +581,7 @@ export default function App() {
     setLoading(false);
   }, []);
 
-  if (!loggedIn) return <Login onLogin={() => setLoggedIn(true)} />;
+  if (!currentUser) return <Login onLogin={(user) => setCurrentUser(user)} />;
 
   const handleFormChange = (key, val) => {
     const updated = { ...form, [key]: val };
@@ -782,9 +851,11 @@ export default function App() {
   const highWarnings = warnings.filter(w => w.severity === "high");
   const clusterLedger = ledger.filter(e => e.cluster === selectedLedgerCluster);
   const pendingEntries = clusterLedger.filter(e => !e.approvalId);
-  const totalComp = clusterLedger.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
+  const approvedEntries = clusterLedger.filter(e => e.approvalId);
+  const totalComp = approvedEntries.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
   const junctionData = clusterJunctions[selectedJunctionCluster] || [];
   const totalJunctionLength = junctionData.reduce((s, j) => s + (parseFloat(j.length) || 0), 0);
+  const completedJunctionLength = junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0);
 
   const updateClusterJunctions = (cluster, updater) =>
     setClusterJunctions(prev => ({ ...prev, [cluster]: updater(prev[cluster] || []) }));
@@ -915,7 +986,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-<button onClick={() => setLoggedIn(false)}
+<button onClick={() => setCurrentUser(null)}
             style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 5, padding: "7px 16px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
             Sign Out
           </button>
@@ -924,7 +995,7 @@ export default function App() {
 
       {/* NAV TABS */}
       <div style={{ background: colors.white, borderBottom: `1px solid ${colors.border}`, padding: "0 40px", display: "flex" }}>
-        {[["entry", "New Entry"], ["ledger", "Ledger"], ["junctions", "Junctions"], ["topsheets", "Top Sheets"]].map(([id, label]) => (
+        {[["entry", "New Entry"], ["ledger", "Ledger"], ["junctions", "Junctions"], ["topsheets", "Top Sheets"], ...(currentUser?.role === "super-admin" ? [["usermgmt", "User Management"]] : [])].map(([id, label]) => (
           <button key={id} className="nav-tab" onClick={() => setActiveTab(id)}
             style={{ background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: activeTab === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: activeTab === id ? 700 : 500, padding: "13px 20px", cursor: "pointer" }}>
             {label}
@@ -1279,11 +1350,12 @@ export default function App() {
             </div>
 
             {/* Stats bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 22 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 22 }}>
               {[
                 { label: "Total Junctions", value: junctionData.length, color: colors.navy },
                 { label: "Total Pipeline Length", value: `${totalJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: colors.gold },
-                { label: "Balance Length", value: `${(totalJunctionLength - junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: colors.green },
+                { label: "Completed Length", value: `${completedJunctionLength.toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: colors.green },
+                { label: "Balance Length", value: `${(totalJunctionLength - completedJunctionLength).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: "#c8973a" },
               ].map(s => (
                 <div key={s.label} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "20px 24px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8 }}>{s.label}</div>
@@ -1296,7 +1368,13 @@ export default function App() {
             <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
               <div style={{ background: colors.formBg, borderBottom: `1px solid ${colors.border}`, padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#3a4566", textTransform: "uppercase", letterSpacing: 0.8 }}>⚙️ Junction Master List</span>
-                <span style={{ fontSize: 12, color: colors.textLight }}>{junctionData.length} sections</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <button onClick={() => downloadAllJunctionsExcel(selectedJunctionCluster, junctionData, ledger)}
+                    style={{ background: colors.navy, color: "white", border: "none", borderRadius: 5, padding: "5px 14px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    ↓ Download All
+                  </button>
+                  <span style={{ fontSize: 12, color: colors.textLight }}>{junctionData.length} sections</span>
+                </div>
               </div>
 
               <div style={{ overflowX: "auto" }}>
@@ -1683,7 +1761,7 @@ export default function App() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 22 }}>
                   {[
                     { label: "Total Compensation", value: `Rs. ${totalComp.toLocaleString("en-IN")}`, color: colors.gold },
-                    { label: "Completed Length", value: `${clusterLedger.reduce((s, e) => s + (parseFloat(e.length) || 0), 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: colors.green },
+                    { label: "Completed Length", value: `${approvedEntries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })} m`, color: colors.green },
                   ].map(s => (
                     <div key={s.label} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "20px 24px" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8 }}>{s.label}</div>
@@ -1940,6 +2018,57 @@ export default function App() {
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {/* ---- USER MANAGEMENT TAB (super-admin only) ---- */}
+        {activeTab === "usermgmt" && currentUser?.role === "super-admin" && (
+          <div>
+            <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: colors.text, marginBottom: 6 }}>User Management</div>
+            <div style={{ fontSize: 13, color: colors.textLight, marginBottom: 24 }}>Update login credentials for any user. Leave the password field blank to keep the existing password.</div>
+            {userMgmtMsg && (
+              <div style={{ background: userMgmtMsg.startsWith("Error") ? "#fff5f5" : "#f0fdf4", border: `1px solid ${userMgmtMsg.startsWith("Error") ? "#fca5a5" : "#86efac"}`, color: userMgmtMsg.startsWith("Error") ? "#b91c1c" : "#166534", borderRadius: 7, padding: "10px 14px", fontSize: 13, marginBottom: 18 }}>
+                {userMgmtMsg}
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {userMgmtUsers.map(u => (
+                <div key={u.id} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "22px 28px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.7, padding: "2px 10px", borderRadius: 4, background: u.role === "super-admin" ? "#ede9fe" : "#e8ecf6", color: u.role === "super-admin" ? "#6d28d9" : "#3a4566" }}>{u.role}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: colors.text }}>{u.username}</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "end" }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, display: "block", marginBottom: 5 }}>New Username</label>
+                      <input
+                        type="text"
+                        value={userMgmtForms[u.id]?.username ?? u.username}
+                        onChange={ev => setUserMgmtForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], username: ev.target.value } }))}
+                        style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "9px 12px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, display: "block", marginBottom: 5 }}>New Password</label>
+                      <input
+                        type="password"
+                        value={userMgmtForms[u.id]?.password ?? ""}
+                        onChange={ev => setUserMgmtForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], password: ev.target.value } }))}
+                        placeholder="Leave blank to keep current"
+                        style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "9px 12px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, boxSizing: "border-box" }}
+                      />
+                    </div>
+                    <button
+                      onClick={() => saveUserCredentials(u.id)}
+                      disabled={userMgmtSaving === u.id || !userMgmtForms[u.id]?.username?.trim()}
+                      style={{ padding: "9px 22px", background: colors.navy, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: userMgmtSaving === u.id ? "not-allowed" : "pointer", opacity: userMgmtSaving === u.id ? 0.7 : 1, whiteSpace: "nowrap" }}
+                    >
+                      {userMgmtSaving === u.id ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
