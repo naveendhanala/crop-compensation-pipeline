@@ -408,6 +408,8 @@ export default function App() {
   const [selectedLedgerCluster, setSelectedLedgerCluster] = useState("A");
   const [paymentEntry, setPaymentEntry] = useState(null); // _id of record being paid
   const [paymentInput, setPaymentInput] = useState("");
+  const [noteEntry, setNoteEntry] = useState(null); // _id of record whose note is being edited
+  const [noteInput, setNoteInput] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null); // _id of record pending delete
   const [uploadFile, setUploadFile] = useState(null); // document to attach to entry
   // Batch extraction state
@@ -924,6 +926,18 @@ export default function App() {
     setLedger(prev => prev.map(e => e._id === _id ? { ...e, paymentDetails: paymentInput.trim() } : e));
     setPaymentEntry(null);
     setPaymentInput("");
+  };
+
+  const handleSaveNote = async () => {
+    if (noteEntry === null) return;
+    const { error: dbError } = await supabase
+      .from("ledger")
+      .update({ remarks: noteInput })
+      .eq("id", noteEntry);
+    if (dbError) { setError(`Failed to save note: ${dbError.message}`); return; }
+    setLedger(prev => prev.map(e => e._id === noteEntry ? { ...e, remarks: noteInput } : e));
+    setNoteEntry(null);
+    setNoteInput("");
   };
 
   const colors = {
@@ -1891,6 +1905,32 @@ export default function App() {
                                     <button onClick={() => { setPaymentEntry(e._id); setPaymentInput(e.paymentDetails || ""); }}
                                       style={{ background: "none", border: `1px solid ${e.paymentDetails ? "#86efac" : "#bfdbfe"}`, borderRadius: 4, color: e.paymentDetails ? "#166534" : "#1d4ed8", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer" }}>
                                       {e.paymentDetails ? "Edit Payment" : "Add Payment"}
+                                    </button>
+                                  )
+                                )}
+                                {e.approvalId && (
+                                  noteEntry === e._id ? (
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                                      <textarea
+                                        autoFocus
+                                        value={noteInput}
+                                        onChange={ev => setNoteInput(ev.target.value)}
+                                        onKeyDown={ev => { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); handleSaveNote(); } if (ev.key === "Escape") { setNoteEntry(null); setNoteInput(""); } }}
+                                        placeholder="Add a note…"
+                                        rows={2}
+                                        style={{ border: `1px solid ${colors.border}`, borderRadius: 4, padding: "4px 8px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, width: 220, resize: "vertical" }}
+                                      />
+                                      <span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                        <button onClick={handleSaveNote}
+                                          style={{ background: colors.navy, color: "white", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Save</button>
+                                        <button onClick={() => { setNoteEntry(null); setNoteInput(""); }}
+                                          style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>✕</button>
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    <button onClick={() => { setNoteEntry(e._id); setNoteInput(e.remarks || ""); }}
+                                      style={{ background: "none", border: `1px solid ${e.remarks ? "#fcd34d" : colors.border}`, borderRadius: 4, color: e.remarks ? "#92400e" : colors.textMid, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginTop: 4 }}>
+                                      {e.remarks ? "Edit Note" : "Add Note"}
                                     </button>
                                   )
                                 )}
