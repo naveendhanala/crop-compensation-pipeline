@@ -44,6 +44,25 @@ function chainageOverlap(aFrom, aTo, bFrom, bTo) {
   return !(parseFloat(aTo) <= parseFloat(bFrom) || parseFloat(bTo) <= parseFloat(aFrom));
 }
 
+function validateJunctionMatch(form, clusterJunctions) {
+  if (!form.cluster || !form.junctionFrom || !form.junctionTo || !form.dia) return null;
+  const clusterJns = clusterJunctions[form.cluster] || [];
+  if (clusterJns.length === 0) return `Junction master data for Cluster ${form.cluster} has not loaded yet. Please wait a moment and try again.`;
+  const match = clusterJns.find(
+    j => j.from.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
+         j.to.trim().toLowerCase() === form.junctionTo.trim().toLowerCase()
+  );
+  if (!match) {
+    return `Junction ${form.junctionFrom}→${form.junctionTo} does not exist in the master list for Cluster ${form.cluster}. Please verify the junction details.`;
+  }
+  const entryDia = parseFloat(form.dia);
+  const masterDia = parseFloat(match.dia);
+  if (!isNaN(entryDia) && !isNaN(masterDia) && Math.abs(entryDia - masterDia) > 0.001) {
+    return `Diameter mismatch: entry has ${form.dia} mm but the master list shows ${match.dia} mm for ${form.junctionFrom}→${form.junctionTo} in Cluster ${form.cluster}. Entry cannot be saved.`;
+  }
+  return null;
+}
+
 function checkDuplicates(form, ledger, clusterJunctions) {
   const warnings = [];
   ledger.forEach((entry) => {
@@ -90,25 +109,6 @@ function checkDuplicates(form, ledger, clusterJunctions) {
       });
     }
   });
-  // Diameter Mismatch: compare entry dia with junctions master list
-  if (form.cluster && form.junctionFrom && form.junctionTo && form.dia) {
-    const clusterJns = clusterJunctions[form.cluster] || [];
-    const matchingJunction = clusterJns.find(
-      j => j.from.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
-           j.to.trim().toLowerCase() === form.junctionTo.trim().toLowerCase()
-    );
-    if (matchingJunction && matchingJunction.dia) {
-      const entryDia = parseFloat(form.dia);
-      const masterDia = parseFloat(matchingJunction.dia);
-      if (!isNaN(entryDia) && !isNaN(masterDia) && Math.abs(entryDia - masterDia) > 0.001) {
-        warnings.push({
-          type: "Diameter Mismatch",
-          severity: "high",
-          message: `Diameter entered (${form.dia} mm) does not match the master list for ${form.junctionFrom}→${form.junctionTo} in Cluster ${form.cluster} (expected: ${matchingJunction.dia} mm).`,
-        });
-      }
-    }
-  }
   // Excess Length: current + existing ledger entries for same cluster + junction should not exceed node length
   if (form.cluster && form.junctionFrom && form.junctionTo && form.length) {
     const clusterJns = clusterJunctions[form.cluster] || [];
@@ -604,6 +604,10 @@ export default function App() {
   };
 
   const handleSave = () => {
+    // Hard block: junction From/To + Diameter must match master list
+    const junctionErr = validateJunctionMatch(form, clusterJunctions);
+    if (junctionErr) { setError(junctionErr); return; }
+
     if (editingEntry) {
       // Edit mode: check against ledger minus the entry being edited
       const ledgerToCheck = ledger.filter(e => e.srNo !== editingEntry.srNo);
