@@ -392,6 +392,8 @@ export default function App() {
   const [pendingEntry, setPendingEntry] = useState(null);
   const [activeTab, setActiveTab] = useState("entry");
   const [ledgerSubTab, setLedgerSubTab] = useState("records"); // "records" | "pending"
+  const [siteEntries, setSiteEntries] = useState([]);
+  const [activeSiteSubTab, setActiveSiteSubTab] = useState("submitted");
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
   const [clusterJunctions, setClusterJunctions] = useState({});
@@ -491,6 +493,43 @@ export default function App() {
       })));
     };
     fetchAllLedger();
+  }, [!!currentUser]);
+
+  // Fetch site entries
+  useEffect(() => {
+    if (!currentUser) return;
+    supabase.from("site_entries").select("*").order("id", { ascending: false }).then(({ data }) => {
+      if (!data) return;
+      setSiteEntries(data.map(row => ({
+        _id: row.id,
+        status: row.status,
+        submittedBy: row.submitted_by || '',
+        date: row.date || '',
+        cluster: row.cluster || '',
+        village: row.village || '',
+        khasraNo: row.khasra_no || '',
+        junctionFrom: row.junction_from || '',
+        junctionTo: row.junction_to || '',
+        chainageFrom: row.chainage_from || '',
+        chainageTo: row.chainage_to || '',
+        length: row.length != null ? String(row.length) : '',
+        dia: row.pipe_dia != null ? String(row.pipe_dia) : '',
+        row: row.row_width != null ? String(row.row_width) : '',
+        landOwnerName: row.land_owner_name || '',
+        farmerName: row.farmer_name || '',
+        crop: row.crop || '',
+        affectedArea: row.affected_area != null ? String(row.affected_area) : '',
+        mandiRate: row.mandi_rate != null ? String(row.mandi_rate) : '',
+        yield: row.yield != null ? String(row.yield) : '',
+        compensationAmount: row.compensation_amount != null ? String(row.compensation_amount) : '',
+        paymentMode: row.payment_mode || '',
+        bankName: row.bank_name || '',
+        accountNo: row.account_no || '',
+        ifscCode: row.ifsc_code || '',
+        remarks: row.remarks || '',
+        documentPath: row.document_path || null,
+      })));
+    });
   }, [!!currentUser]);
 
   // User management state (super-admin only)
@@ -693,6 +732,48 @@ export default function App() {
       if (dbError) { setError(`Failed to update: ${dbError.message}`); return; }
       setLedger(prev => prev.map(e => e._id === _id ? { _id, srNo, date, approvalId: approvalId || null, ...fields, ...(documentPath ? { documentPath } : {}) } : e));
       setEditingEntry(null);
+    } else if (currentUser?.role === "site-qs") {
+      // site-qs: INSERT into site_entries (pending admin approval)
+      const date = new Date().toLocaleDateString("en-IN");
+      const { srNo: _, date: __, approvalId: _d, ...fields } = { ...data };
+      const payload = {
+        status: "submitted",
+        submitted_by: currentUser.username,
+        date,
+        cluster: fields.cluster || null,
+        village: fields.village || null,
+        khasra_no: fields.khasraNo || null,
+        junction_from: fields.junctionFrom || null,
+        junction_to: fields.junctionTo || null,
+        chainage_from: fields.chainageFrom || null,
+        chainage_to: fields.chainageTo || null,
+        length: parseFloat(fields.length) || null,
+        pipe_dia: parseFloat(fields.dia) || null,
+        row_width: parseFloat(fields.row) || null,
+        land_owner_name: fields.landOwnerName || null,
+        farmer_name: fields.farmerName || null,
+        crop: fields.crop || null,
+        affected_area: parseFloat(fields.affectedArea) || null,
+        mandi_rate: parseFloat(fields.mandiRate) || null,
+        yield: parseFloat(fields.yield) || null,
+        compensation_amount: parseFloat(fields.compensationAmount) || null,
+        payment_mode: fields.paymentMode || null,
+        bank_name: fields.bankName || null,
+        account_no: fields.accountNo || null,
+        ifsc_code: fields.ifscCode || null,
+        remarks: fields.remarks || null,
+      };
+      const { data: inserted, error: dbError } = await supabase.from("site_entries").insert(payload).select("id").single();
+      if (dbError) { setError(`Failed to submit entry: ${dbError.message}`); return; }
+      let documentPath = null;
+      if (uploadFile) {
+        const ext = uploadFile.name.split('.').pop();
+        const storagePath = `site_entries/${inserted.id}/document.${ext}`;
+        const { error: storageError } = await supabase.storage.from('entry-documents').upload(storagePath, uploadFile, { upsert: true });
+        if (!storageError) { documentPath = storagePath; await supabase.from("site_entries").update({ document_path: documentPath }).eq("id", inserted.id); }
+        else setError(`Document upload failed: ${storageError.message}`);
+      }
+      setSiteEntries(prev => [{ ...fields, _id: inserted.id, date, status: "submitted", submittedBy: currentUser.username, ...(documentPath ? { documentPath } : {}) }, ...prev]);
     } else {
       // INSERT new entry — no approvalId yet (pending)
       const date = new Date().toLocaleDateString("en-IN");
@@ -940,6 +1021,49 @@ export default function App() {
     setNoteInput("");
   };
 
+  const approveSiteEntry = async (entry) => {
+    const date = new Date().toLocaleDateString("en-IN");
+    const { data: inserted, error: dbError } = await supabase.from("ledger").insert({
+      date: entry.date || date,
+      approval_id: null,
+      cluster: entry.cluster || null,
+      village: entry.village || null,
+      khasra_no: entry.khasraNo || null,
+      junction_from: entry.junctionFrom || null,
+      junction_to: entry.junctionTo || null,
+      chainage_from: entry.chainageFrom || null,
+      chainage_to: entry.chainageTo || null,
+      length: parseFloat(entry.length) || null,
+      pipe_dia: parseFloat(entry.dia) || null,
+      row_width: parseFloat(entry.row) || null,
+      land_owner_name: entry.landOwnerName || null,
+      farmer_name: entry.farmerName || null,
+      crop: entry.crop || null,
+      affected_area: parseFloat(entry.affectedArea) || null,
+      mandi_rate: parseFloat(entry.mandiRate) || null,
+      yield: parseFloat(entry.yield) || null,
+      compensation_amount: parseFloat(entry.compensationAmount) || null,
+      payment_mode: entry.paymentMode || null,
+      bank_name: entry.bankName || null,
+      account_no: entry.accountNo || null,
+      ifsc_code: entry.ifscCode || null,
+      remarks: entry.remarks || null,
+      payment_details: null,
+      document_path: entry.documentPath || null,
+    }).select("id").single();
+    if (dbError) { setError(`Failed to approve entry: ${dbError.message}`); return; }
+    await supabase.from("site_entries").update({ status: "approved" }).eq("id", entry._id);
+    const srNo = inserted.id;
+    setLedger(prev => [...prev, { ...entry, _id: inserted.id, srNo, date: entry.date || date, approvalId: null }]);
+    setSiteEntries(prev => prev.map(e => e._id === entry._id ? { ...e, status: "approved" } : e));
+  };
+
+  const rejectSiteEntry = async (id) => {
+    const { error: dbError } = await supabase.from("site_entries").update({ status: "rejected" }).eq("id", id);
+    if (dbError) { setError(`Failed to reject entry: ${dbError.message}`); return; }
+    setSiteEntries(prev => prev.map(e => e._id === id ? { ...e, status: "rejected" } : e));
+  };
+
   const colors = {
     navy: "#1b3068", navyDark: "#142450", gold: "#c8973a", goldDark: "#b5832e",
     green: "#16a34a", bg: "#f0f2f6", white: "#ffffff",
@@ -1013,7 +1137,10 @@ export default function App() {
 
       {/* NAV TABS */}
       <div style={{ background: colors.white, borderBottom: `1px solid ${colors.border}`, padding: "0 40px", display: "flex" }}>
-        {[["entry", "New Entry"], ["ledger", "Ledger"], ["junctions", "Junctions"], ["topsheets", "Top Sheets"], ...(currentUser?.role === "super-admin" ? [["usermgmt", "User Management"]] : [])].map(([id, label]) => (
+        {(currentUser?.role === "site-qs"
+          ? [["entry", "New Entry"], ["siteentries", "Site Entries"]]
+          : [["entry", "New Entry"], ["ledger", "Ledger"], ["junctions", "Junctions"], ["topsheets", "Top Sheets"], ["siteentries", "Site Entries"], ...(currentUser?.role === "super-admin" ? [["usermgmt", "User Management"]] : [])]
+        ).map(([id, label]) => (
           <button key={id} className="nav-tab" onClick={() => setActiveTab(id)}
             style={{ background: "none", border: "none", borderBottom: activeTab === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: activeTab === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: activeTab === id ? 700 : 500, padding: "13px 20px", cursor: "pointer" }}>
             {label}
@@ -1029,7 +1156,7 @@ export default function App() {
           <div>
             {step === "saved" && (
               <div style={{ background: "#f0fdf4", border: "1px solid #86efac", color: "#166534", borderRadius: 8, padding: "11px 16px", fontSize: 13, marginBottom: 16 }}>
-                ✓ Entry saved successfully and added to the ledger.
+                {currentUser?.role === "site-qs" ? "✓ Entry submitted successfully. Awaiting admin approval." : "✓ Entry saved successfully and added to the ledger."}
               </div>
             )}
             {error && (
@@ -1046,22 +1173,24 @@ export default function App() {
             {/* Upload Zone */}
             {(step === "idle" || step === "saved") && !loading && (
               <>
-                <div
-                  onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
-                  onDragOver={e => e.preventDefault()}
-                  onMouseEnter={() => setHoverUpload(true)}
-                  onMouseLeave={() => setHoverUpload(false)}
-                  onClick={() => fileRef.current.click()}
-                  style={{ background: hoverUpload ? colors.formBg : colors.white, border: `2px dashed ${hoverUpload ? colors.navy : "#c9d3e8"}`, borderRadius: 10, padding: "56px 24px", textAlign: "center", cursor: "pointer", marginBottom: 20, transition: "all 0.15s" }}
-                >
-                  <div style={{ width: 54, height: 54, background: "#eef1f9", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", fontSize: 22 }}>📄</div>
-                  <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 17, fontWeight: 600, color: colors.navy, marginBottom: 7 }}>Upload Compensation Document</div>
-                  <div style={{ fontSize: 13, color: colors.textLight, lineHeight: 1.6 }}>
-                    Drag & drop a PDF here, or <span style={{ color: colors.navy, fontWeight: 600 }}>click to browse</span><br />
-                    Claude will automatically extract all fields from the document
+                {currentUser?.role !== "site-qs" && (
+                  <div
+                    onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
+                    onDragOver={e => e.preventDefault()}
+                    onMouseEnter={() => setHoverUpload(true)}
+                    onMouseLeave={() => setHoverUpload(false)}
+                    onClick={() => fileRef.current.click()}
+                    style={{ background: hoverUpload ? colors.formBg : colors.white, border: `2px dashed ${hoverUpload ? colors.navy : "#c9d3e8"}`, borderRadius: 10, padding: "56px 24px", textAlign: "center", cursor: "pointer", marginBottom: 20, transition: "all 0.15s" }}
+                  >
+                    <div style={{ width: 54, height: 54, background: "#eef1f9", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", fontSize: 22 }}>📄</div>
+                    <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 17, fontWeight: 600, color: colors.navy, marginBottom: 7 }}>Upload Compensation Document</div>
+                    <div style={{ fontSize: 13, color: colors.textLight, lineHeight: 1.6 }}>
+                      Drag & drop a PDF here, or <span style={{ color: colors.navy, fontWeight: 600 }}>click to browse</span><br />
+                      Claude will automatically extract all fields from the document
+                    </div>
+                    <input ref={fileRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
                   </div>
-                  <input ref={fileRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
-                </div>
+                )}
                 <div style={{ textAlign: "center" }}>
                   <button style={{ background: "none", border: "none", color: "#4a6fa5", fontSize: 13, cursor: "pointer", textDecoration: "underline", fontFamily: "'Source Sans 3', sans-serif" }}
                     onClick={() => setStep("reviewing")}>Enter data manually without uploading</button>
@@ -2061,6 +2190,76 @@ export default function App() {
                   )}
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {/* ---- SITE ENTRIES TAB ---- */}
+        {activeTab === "siteentries" && (
+          <div>
+            <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: colors.text, marginBottom: 6 }}>Site Entries</div>
+            <div style={{ fontSize: 13, color: colors.textLight, marginBottom: 20 }}>Entries submitted by site team. Admin can approve or reject from the Submitted tab.</div>
+
+            {/* Sub-tabs */}
+            <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
+              {[["submitted", "Submitted"], ["approved", "Approved"], ["rejected", "Rejected"]].map(([id, label]) => {
+                const count = siteEntries.filter(e => e.status === id).length;
+                return (
+                  <button key={id} onClick={() => setActiveSiteSubTab(id)}
+                    style={{ background: "none", border: "none", borderBottom: activeSiteSubTab === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: activeSiteSubTab === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: activeSiteSubTab === id ? 700 : 500, padding: "10px 20px", cursor: "pointer" }}>
+                    {label} <span style={{ background: activeSiteSubTab === id ? colors.navy : colors.border, color: activeSiteSubTab === id ? "white" : colors.textLight, borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Entry rows */}
+            {siteEntries.filter(e => e.status === activeSiteSubTab).length === 0 ? (
+              <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "40px 24px", textAlign: "center", color: colors.textLight, fontSize: 13 }}>
+                No {activeSiteSubTab} entries.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {siteEntries.filter(e => e.status === activeSiteSubTab).map(e => (
+                  <div key={e._id} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "18px 24px" }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: colors.navy }}>#{e._id}</span>
+                          {e.cluster && <span style={{ fontSize: 11, background: "#eef1f9", color: "#3a4566", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>Cluster {e.cluster}</span>}
+                          {e.junctionFrom && e.junctionTo && <span style={{ fontSize: 11, color: colors.textLight }}>{e.junctionFrom} → {e.junctionTo}</span>}
+                          <span style={{ fontSize: 11, color: colors.textLight }}>· {e.date}</span>
+                          {e.submittedBy && <span style={{ fontSize: 11, color: colors.textLight }}>· by {e.submittedBy}</span>}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px 20px" }}>
+                          {[["Farmer", e.farmerName], ["Village", e.village], ["Khasra", e.khasraNo], ["Chainage", e.chainageFrom && e.chainageTo ? `${e.chainageFrom}–${e.chainageTo}` : ""], ["Length (m)", e.length], ["Dia (mm)", e.dia], ["Amount (₹)", e.compensationAmount ? `₹${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : ""], ["Crop", e.crop]].filter(([, v]) => v).map(([label, value]) => (
+                            <div key={label}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
+                              <div style={{ fontSize: 12, color: colors.text, marginTop: 1 }}>{value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {e.remarks && <div style={{ marginTop: 8, fontSize: 12, color: colors.textLight, fontStyle: "italic" }}>Note: {e.remarks}</div>}
+                      </div>
+                      {/* Admin actions — only on submitted tab */}
+                      {activeSiteSubTab === "submitted" && (currentUser?.role === "admin" || currentUser?.role === "super-admin") && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 100 }}>
+                          <button onClick={() => approveSiteEntry(e)}
+                            style={{ padding: "8px 18px", background: colors.green, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                            ✓ Approve
+                          </button>
+                          <button onClick={() => rejectSiteEntry(e._id)}
+                            style={{ padding: "8px 18px", background: "none", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                            ✕ Reject
+                          </button>
+                        </div>
+                      )}
+                      {activeSiteSubTab === "approved" && <span style={{ fontSize: 11, fontWeight: 700, color: colors.green, background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 5, padding: "4px 10px", whiteSpace: "nowrap" }}>✓ Approved → Ledger</span>}
+                      {activeSiteSubTab === "rejected" && <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fff5f5", border: "1px solid #fca5a5", borderRadius: 5, padding: "4px 10px", whiteSpace: "nowrap" }}>✕ Rejected</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
