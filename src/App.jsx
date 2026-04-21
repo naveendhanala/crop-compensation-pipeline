@@ -16,6 +16,7 @@ const FIELDS = [
   { key: "length", label: "Length (m)", group: "pipeline" },
   { key: "dia", label: "Diameter (MM)", group: "pipeline" },
   { key: "row", label: "ROW (m)", group: "pipeline" },
+  { key: "entryId", label: "Entry ID", group: "pipeline", hdpeSiteQsOnly: true },
   { key: "remarks", label: "Remarks", group: "pipeline", type: "textarea" },
   { key: "landOwnerName", label: "Land Owner Name", group: "parties" },
   { key: "farmerName", label: "Farmer / Lessee Name", group: "parties" },
@@ -44,10 +45,12 @@ function chainageOverlap(aFrom, aTo, bFrom, bTo) {
   return !(parseFloat(aTo) <= parseFloat(bFrom) || parseFloat(bTo) <= parseFloat(aFrom));
 }
 
-function validateJunctionMatch(form, clusterJunctions) {
+function validateJunctionMatch(form, clusterJunctions, pipelineType = "MS") {
   if (!form.cluster || !form.junctionFrom || !form.junctionTo || !form.dia) return null;
-  const clusterJns = clusterJunctions[form.cluster] || [];
-  if (clusterJns.length === 0) return `Junction master data for Cluster ${form.cluster} has not loaded yet. Please wait a moment and try again.`;
+  const allClusterJns = clusterJunctions[form.cluster] || [];
+  const clusterJns = allClusterJns.filter(j => (j.pipelineType || 'MS') === pipelineType);
+  if (allClusterJns.length === 0) return `Junction master data for Cluster ${form.cluster} has not loaded yet. Please wait a moment and try again.`;
+  if (clusterJns.length === 0) return `No ${pipelineType} pipeline junctions found for Cluster ${form.cluster}. Please verify the pipeline type.`;
   const match = clusterJns.find(
     j => j.from.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
          j.to.trim().toLowerCase() === form.junctionTo.trim().toLowerCase()
@@ -63,13 +66,15 @@ function validateJunctionMatch(form, clusterJunctions) {
   return null;
 }
 
-function checkDuplicates(form, ledger, clusterJunctions) {
+function checkDuplicates(form, ledger, clusterJunctions, pipelineType = "MS") {
   const warnings = [];
   ledger.forEach((entry) => {
+    const entryLabel = entry.srNo ? `#${entry.srNo}` : (entry.status === "submitted" ? `Pending SE-${entry._id}` : `#${entry._id}`);
     const sameCluster = !form.cluster || !entry.cluster || entry.cluster === form.cluster;
-    // Duplicate Chainage/Node Range: same junction from/to + overlapping chainage, same cluster
+    const samePipelineType = (entry.pipelineType || 'MS') === pipelineType;
+    // Duplicate Chainage/Node Range: same junction from/to + overlapping chainage, same cluster + pipeline type
     if (
-      sameCluster &&
+      sameCluster && samePipelineType &&
       form.junctionFrom && form.junctionTo &&
       entry.junctionFrom && entry.junctionTo &&
       entry.junctionFrom.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
@@ -81,7 +86,7 @@ function checkDuplicates(form, ledger, clusterJunctions) {
       warnings.push({
         type: "Duplicate Chainage/Node Range",
         severity: "high",
-        message: `Junction ${form.junctionFrom}→${form.junctionTo} with chainage ${form.chainageFrom}–${form.chainageTo} overlaps with Entry #${entry.srNo} (chainage ${entry.chainageFrom}–${entry.chainageTo}, Khasra: ${entry.khasraNo}, Farmer: ${entry.farmerName}).`,
+        message: `Junction ${form.junctionFrom}→${form.junctionTo} with chainage ${form.chainageFrom}–${form.chainageTo} overlaps with Entry ${entryLabel} (chainage ${entry.chainageFrom}–${entry.chainageTo}, Khasra: ${entry.khasraNo}, Farmer: ${entry.farmerName}).`,
       });
     }
     if (
@@ -92,7 +97,7 @@ function checkDuplicates(form, ledger, clusterJunctions) {
       warnings.push({
         type: "Bank Account Mismatch",
         severity: "high",
-        message: `Account No. "${form.accountNo}" is already registered under a different farmer: "${entry.farmerName}" (Entry #${entry.srNo}). Please verify before proceeding.`,
+        message: `Account No. "${form.accountNo}" is already registered under a different farmer: "${entry.farmerName}" (Entry ${entryLabel}). Please verify before proceeding.`,
       });
     }
     if (
@@ -105,13 +110,13 @@ function checkDuplicates(form, ledger, clusterJunctions) {
       warnings.push({
         type: "Repeat Compensation — Same Farmer",
         severity: "low",
-        message: `Farmer "${form.farmerName}" has a previous compensation for Khasra No. "${form.khasraNo}" under a different chainage range (Entry #${entry.srNo}). This is permitted but flagged for awareness.`,
+        message: `Farmer "${form.farmerName}" has a previous compensation for Khasra No. "${form.khasraNo}" under a different chainage range (Entry ${entryLabel}). This is permitted but flagged for awareness.`,
       });
     }
   });
-  // Excess Length: current + existing ledger entries for same cluster + junction should not exceed node length
+  // Excess Length: current + existing ledger entries for same cluster + junction + pipeline type should not exceed node length
   if (form.cluster && form.junctionFrom && form.junctionTo && form.length) {
-    const clusterJns = clusterJunctions[form.cluster] || [];
+    const clusterJns = (clusterJunctions[form.cluster] || []).filter(j => (j.pipelineType || 'MS') === pipelineType);
     const matchingJunction = clusterJns.find(
       j => j.from.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
            j.to.trim().toLowerCase() === form.junctionTo.trim().toLowerCase()
@@ -122,6 +127,7 @@ function checkDuplicates(form, ledger, clusterJunctions) {
       const existingLength = ledger
         .filter(e =>
           e.cluster === form.cluster &&
+          (e.pipelineType || 'MS') === pipelineType &&
           e.junctionFrom && e.junctionTo &&
           e.junctionFrom.trim().toLowerCase() === form.junctionFrom.trim().toLowerCase() &&
           e.junctionTo.trim().toLowerCase() === form.junctionTo.trim().toLowerCase()
@@ -392,11 +398,15 @@ export default function App() {
   const [pendingEntry, setPendingEntry] = useState(null);
   const [activeTab, setActiveTab] = useState("entry");
   const [ledgerSubTab, setLedgerSubTab] = useState("records"); // "records" | "pending"
+  const [ledgerPipelineType, setLedgerPipelineType] = useState("MS"); // "MS" | "HDPE"
+  const [junctionPipelineType, setJunctionPipelineType] = useState("MS"); // "MS" | "HDPE"
+  const [formPipelineType, setFormPipelineType] = useState("MS"); // for new entry, site-qs only
   const [siteEntries, setSiteEntries] = useState([]);
   const [activeSiteSubTab, setActiveSiteSubTab] = useState("submitted");
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
   const [clusterJunctions, setClusterJunctions] = useState({});
+  const loadedClusters = useRef(new Set());
   const [selectedJunctionCluster, setSelectedJunctionCluster] = useState("A");
   const [selectedTopsheetCluster, setSelectedTopsheetCluster] = useState("A");
   const [topsheetSearch, setTopsheetSearch] = useState("");
@@ -422,29 +432,36 @@ export default function App() {
   const fileRef = useRef();
   const docFileRef = useRef();
 
-  // Load junctions from Supabase when user logs in or switches to junctions tab
+  // Lazy-load junctions for a specific cluster (fetches once, then caches)
+  const loadClusterJunctions = useCallback(async (cluster) => {
+    if (!cluster || loadedClusters.current.has(cluster)) return;
+    loadedClusters.current.add(cluster);
+    const pageSize = 1000;
+    let allData = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase.from("junctions").select("*").eq("cluster", cluster).order("id", { ascending: true }).range(from, from + pageSize - 1);
+      if (error) { console.error(`Failed to load junctions for cluster ${cluster}:`, error.message); loadedClusters.current.delete(cluster); return; }
+      if (!data || data.length === 0) break;
+      allData = [...allData, ...data];
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+    const rows = allData.map(row => ({ id: row.id, from: row.junction_from, to: row.junction_to, length: row.length, dia: row.pipe_dia ?? 0, pipelineType: row.pipeline_type || 'MS' }));
+    setClusterJunctions(prev => ({ ...prev, [cluster]: rows }));
+  }, []);
+
+  // Load junctions for the selected junction cluster tab
   useEffect(() => {
     if (!currentUser) return;
-    const fetchAllJunctions = async () => {
-      const pageSize = 1000;
-      let allData = [];
-      let from = 0;
-      while (true) {
-        const { data, error } = await supabase.from("junctions").select("*").order("id", { ascending: true }).range(from, from + pageSize - 1);
-        if (error) { console.error("Failed to load junctions:", error.message); return; }
-        if (!data || data.length === 0) break;
-        allData = [...allData, ...data];
-        if (data.length < pageSize) break;
-        from += pageSize;
-      }
-      const grouped = Object.fromEntries(CLUSTERS.map(c => [c, []]));
-      allData.forEach(row => {
-        if (grouped[row.cluster]) grouped[row.cluster].push({ id: row.id, from: row.junction_from, to: row.junction_to, length: row.length, dia: row.pipe_dia ?? 0 });
-      });
-      setClusterJunctions(grouped);
-    };
-    fetchAllJunctions();
-  }, [!!currentUser, activeTab === "junctions"]);
+    loadClusterJunctions(selectedJunctionCluster);
+  }, [currentUser, selectedJunctionCluster, loadClusterJunctions]);
+
+  // Load junctions for the form cluster when user selects one in new entry
+  useEffect(() => {
+    if (!currentUser || !form.cluster) return;
+    loadClusterJunctions(form.cluster);
+  }, [currentUser, form.cluster, loadClusterJunctions]);
 
   // Load ledger from Supabase when user logs in
   useEffect(() => {
@@ -490,6 +507,8 @@ export default function App() {
         paymentDetails: row.payment_details || '',
         remarks: row.remarks || '',
         documentPath: row.document_path || null,
+        pipelineType: row.pipeline_type || 'MS',
+        entryId: row.entry_id || '',
       })));
     };
     fetchAllLedger();
@@ -528,6 +547,8 @@ export default function App() {
         ifscCode: row.ifsc_code || '',
         remarks: row.remarks || '',
         documentPath: row.document_path || null,
+        pipelineType: row.pipeline_type || 'MS',
+        entryId: row.entry_id || '',
       })));
     });
   }, [!!currentUser]);
@@ -645,21 +666,24 @@ export default function App() {
   };
 
   const handleSave = () => {
+    setError("");
+    const pt = currentUser?.role === "site-qs" ? formPipelineType : "MS";
     // Hard block: junction From/To + Diameter must match master list
-    const junctionErr = validateJunctionMatch(form, clusterJunctions);
+    const junctionErr = validateJunctionMatch(form, clusterJunctions, pt);
     if (junctionErr) { setError(junctionErr); return; }
 
+    const pendingSiteEntries = siteEntries.filter(e => e.status === "submitted");
     if (editingEntry) {
-      // Edit mode: check against ledger minus the entry being edited
+      // Edit mode: check against ledger minus the entry being edited + pending site entries
       const ledgerToCheck = ledger.filter(e => e.srNo !== editingEntry.srNo);
-      const dups = checkDuplicates(form, ledgerToCheck, clusterJunctions);
+      const dups = checkDuplicates(form, [...ledgerToCheck, ...pendingSiteEntries], clusterJunctions, pt);
       const cFlags = calcFlags.map(f => ({ ...f, severity: "medium" }));
       const all = [...dups, ...cFlags];
       if (all.length > 0) { setWarnings(all); setPendingEntry(form); setStep("warning"); }
       else commitEntry(form);
     } else {
-      // Batch new-entry mode: check against existing ledger + already-confirmed batch entries
-      const dups = checkDuplicates(form, [...ledger, ...batchEntries], clusterJunctions);
+      // Batch new-entry mode: check against existing ledger + confirmed batch entries + pending site entries
+      const dups = checkDuplicates(form, [...ledger, ...batchEntries, ...pendingSiteEntries], clusterJunctions, pt);
       const cFlags = calcFlags.map(f => ({ ...f, severity: "medium" }));
       const all = [...dups, ...cFlags];
       if (all.length > 0) { setWarnings(all); setPendingEntry(form); setStep("warning"); }
@@ -739,6 +763,7 @@ export default function App() {
       const payload = {
         status: "submitted",
         submitted_by: currentUser.username,
+        pipeline_type: formPipelineType,
         date,
         cluster: fields.cluster || null,
         village: fields.village || null,
@@ -762,6 +787,7 @@ export default function App() {
         account_no: fields.accountNo || null,
         ifsc_code: fields.ifscCode || null,
         remarks: fields.remarks || null,
+        entry_id: fields.entryId || null,
       };
       const { data: inserted, error: dbError } = await supabase.from("site_entries").insert(payload).select("id").single();
       if (dbError) { setError(`Failed to submit entry: ${dbError.message}`); return; }
@@ -773,7 +799,7 @@ export default function App() {
         if (!storageError) { documentPath = storagePath; await supabase.from("site_entries").update({ document_path: documentPath }).eq("id", inserted.id); }
         else setError(`Document upload failed: ${storageError.message}`);
       }
-      setSiteEntries(prev => [{ ...fields, _id: inserted.id, date, status: "submitted", submittedBy: currentUser.username, ...(documentPath ? { documentPath } : {}) }, ...prev]);
+      setSiteEntries(prev => [{ ...fields, _id: inserted.id, date, status: "submitted", submittedBy: currentUser.username, pipelineType: formPipelineType, ...(documentPath ? { documentPath } : {}) }, ...prev]);
     } else {
       // INSERT new entry — no approvalId yet (pending)
       const date = new Date().toLocaleDateString("en-IN");
@@ -806,6 +832,7 @@ export default function App() {
           ifsc_code: fields.ifscCode || null,
           remarks: fields.remarks || null,
           payment_details: null,
+          pipeline_type: 'MS',
         })
         .select("id")
         .single();
@@ -824,9 +851,9 @@ export default function App() {
       if (documentPath) {
         await supabase.from("ledger").update({ document_path: documentPath }).eq("id", inserted.id);
       }
-      setLedger(prev => [...prev, { ...data, _id: inserted.id, srNo, date, approvalId: null, ...(documentPath ? { documentPath } : {}) }]);
+      setLedger(prev => [...prev, { ...data, _id: inserted.id, srNo, date, approvalId: null, pipelineType: 'MS', ...(documentPath ? { documentPath } : {}) }]);
     }
-    setForm(EMPTY_FORM); setCalcFlags([]); setWarnings([]); setPendingEntry(null);
+    setForm(EMPTY_FORM); setCalcFlags([]); setWarnings([]); setPendingEntry(null); setFormPipelineType("MS");
     setUploadFile(null);
     if (docFileRef.current) docFileRef.current.value = "";
     setStep("saved");
@@ -851,46 +878,90 @@ export default function App() {
       else setError(`Document upload failed: ${storageError.message}`);
     }
 
+    const isSiteQs = currentUser?.role === "site-qs";
     const newLedgerEntries = [];
+    const newSiteEntries = [];
     for (const data of batchEntries) {
       const { srNo: _, date: __, approvalId: _d, ...fields } = { ...data };
-      const { data: inserted, error: dbError } = await supabase
-        .from("ledger")
-        .insert({
-          date,
-          approval_id: null,
-          cluster: fields.cluster || null,
-          village: fields.village || null,
-          khasra_no: fields.khasraNo || null,
-          junction_from: fields.junctionFrom || null,
-          junction_to: fields.junctionTo || null,
-          chainage_from: fields.chainageFrom || null,
-          chainage_to: fields.chainageTo || null,
-          length: parseFloat(fields.length) || null,
-          pipe_dia: parseFloat(fields.dia) || null,
-          row_width: parseFloat(fields.row) || null,
-          land_owner_name: fields.landOwnerName || null,
-          farmer_name: fields.farmerName || null,
-          crop: fields.crop || null,
-          affected_area: parseFloat(fields.affectedArea) || null,
-          mandi_rate: parseFloat(fields.mandiRate) || null,
-          yield: parseFloat(fields.yield) || null,
-          compensation_amount: parseFloat(fields.compensationAmount) || null,
-          payment_mode: fields.paymentMode || null,
-          bank_name: fields.bankName || null,
-          account_no: fields.accountNo || null,
-          ifsc_code: fields.ifscCode || null,
-          remarks: fields.remarks || null,
-          payment_details: null,
-          document_path: sharedDocPath,
-        })
-        .select("id")
-        .single();
-      if (dbError) { setError(`Failed to save entry: ${dbError.message}`); setLoading(false); return; }
-      newLedgerEntries.push({ ...data, _id: inserted.id, srNo: inserted.id, date, approvalId: null, documentPath: sharedDocPath });
+      if (isSiteQs) {
+        const { data: inserted, error: dbError } = await supabase
+          .from("site_entries")
+          .insert({
+            status: "submitted",
+            submitted_by: currentUser.username,
+            pipeline_type: formPipelineType,
+            date,
+            cluster: fields.cluster || null,
+            village: fields.village || null,
+            khasra_no: fields.khasraNo || null,
+            junction_from: fields.junctionFrom || null,
+            junction_to: fields.junctionTo || null,
+            chainage_from: fields.chainageFrom || null,
+            chainage_to: fields.chainageTo || null,
+            length: parseFloat(fields.length) || null,
+            pipe_dia: parseFloat(fields.dia) || null,
+            row_width: parseFloat(fields.row) || null,
+            land_owner_name: fields.landOwnerName || null,
+            farmer_name: fields.farmerName || null,
+            crop: fields.crop || null,
+            affected_area: parseFloat(fields.affectedArea) || null,
+            mandi_rate: parseFloat(fields.mandiRate) || null,
+            yield: parseFloat(fields.yield) || null,
+            compensation_amount: parseFloat(fields.compensationAmount) || null,
+            payment_mode: fields.paymentMode || null,
+            bank_name: fields.bankName || null,
+            account_no: fields.accountNo || null,
+            ifsc_code: fields.ifscCode || null,
+            remarks: fields.remarks || null,
+            entry_id: fields.entryId || null,
+            document_path: sharedDocPath,
+          })
+          .select("id")
+          .single();
+        if (dbError) { setError(`Failed to submit entry: ${dbError.message}`); setLoading(false); return; }
+        if (sharedDocPath) await supabase.from("site_entries").update({ document_path: sharedDocPath }).eq("id", inserted.id);
+        newSiteEntries.push({ ...fields, _id: inserted.id, date, status: "submitted", submittedBy: currentUser.username, pipelineType: formPipelineType, documentPath: sharedDocPath });
+      } else {
+        const { data: inserted, error: dbError } = await supabase
+          .from("ledger")
+          .insert({
+            date,
+            approval_id: null,
+            cluster: fields.cluster || null,
+            village: fields.village || null,
+            khasra_no: fields.khasraNo || null,
+            junction_from: fields.junctionFrom || null,
+            junction_to: fields.junctionTo || null,
+            chainage_from: fields.chainageFrom || null,
+            chainage_to: fields.chainageTo || null,
+            length: parseFloat(fields.length) || null,
+            pipe_dia: parseFloat(fields.dia) || null,
+            row_width: parseFloat(fields.row) || null,
+            land_owner_name: fields.landOwnerName || null,
+            farmer_name: fields.farmerName || null,
+            crop: fields.crop || null,
+            affected_area: parseFloat(fields.affectedArea) || null,
+            mandi_rate: parseFloat(fields.mandiRate) || null,
+            yield: parseFloat(fields.yield) || null,
+            compensation_amount: parseFloat(fields.compensationAmount) || null,
+            payment_mode: fields.paymentMode || null,
+            bank_name: fields.bankName || null,
+            account_no: fields.accountNo || null,
+            ifsc_code: fields.ifscCode || null,
+            remarks: fields.remarks || null,
+            payment_details: null,
+            document_path: sharedDocPath,
+            pipeline_type: 'MS',
+          })
+          .select("id")
+          .single();
+        if (dbError) { setError(`Failed to save entry: ${dbError.message}`); setLoading(false); return; }
+        newLedgerEntries.push({ ...data, _id: inserted.id, srNo: inserted.id, date, approvalId: null, pipelineType: 'MS', documentPath: sharedDocPath });
+      }
     }
 
-    setLedger(prev => [...prev, ...newLedgerEntries]);
+    if (isSiteQs) setSiteEntries(prev => [...newSiteEntries, ...prev]);
+    else setLedger(prev => [...prev, ...newLedgerEntries]);
     // Reset all batch state
     setExtractedEntries([]);
     setBatchEntries([]);
@@ -936,11 +1007,11 @@ export default function App() {
   };
 
   const highWarnings = warnings.filter(w => w.severity === "high");
-  const clusterLedger = ledger.filter(e => e.cluster === selectedLedgerCluster);
+  const clusterLedger = ledger.filter(e => e.cluster === selectedLedgerCluster && (e.pipelineType || 'MS') === ledgerPipelineType);
   const pendingEntries = clusterLedger.filter(e => !e.approvalId);
   const approvedEntries = clusterLedger.filter(e => e.approvalId);
   const totalComp = approvedEntries.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
-  const junctionData = clusterJunctions[selectedJunctionCluster] || [];
+  const junctionData = (clusterJunctions[selectedJunctionCluster] || []).filter(j => (j.pipelineType || 'MS') === junctionPipelineType);
   const totalJunctionLength = junctionData.reduce((s, j) => s + (parseFloat(j.length) || 0), 0);
   const completedJunctionLength = junctionData.reduce((s, j) => s + ledger.filter(e => e.cluster === selectedJunctionCluster && e.junctionFrom === j.from && e.junctionTo === j.to).reduce((a, e) => a + (parseFloat(e.length) || 0), 0), 0);
 
@@ -969,10 +1040,10 @@ export default function App() {
   const addJunction = async () => {
     if (!newJunction.from.trim() || !newJunction.to.trim()) return;
     const { data: inserted, error } = await supabase.from("junctions")
-      .insert({ cluster: selectedJunctionCluster, junction_from: newJunction.from.trim(), junction_to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0, pipe_dia: parseFloat(newJunction.dia) || 0 })
+      .insert({ cluster: selectedJunctionCluster, junction_from: newJunction.from.trim(), junction_to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0, pipe_dia: parseFloat(newJunction.dia) || 0, pipeline_type: junctionPipelineType })
       .select("id").single();
     if (error) { console.error("Failed to add junction:", error.message); return; }
-    updateClusterJunctions(selectedJunctionCluster, arr => [...arr, { id: inserted.id, from: newJunction.from.trim(), to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0, dia: parseFloat(newJunction.dia) || 0 }]);
+    updateClusterJunctions(selectedJunctionCluster, arr => [...arr, { id: inserted.id, from: newJunction.from.trim(), to: newJunction.to.trim(), length: parseFloat(newJunction.length) || 0, dia: parseFloat(newJunction.dia) || 0, pipelineType: junctionPipelineType }]);
     setNewJunction({ from: "", to: "", length: "" });
   };
 
@@ -1050,11 +1121,13 @@ export default function App() {
       remarks: entry.remarks || null,
       payment_details: null,
       document_path: entry.documentPath || null,
+      pipeline_type: entry.pipelineType || 'MS',
+      entry_id: entry.entryId || null,
     }).select("id").single();
     if (dbError) { setError(`Failed to approve entry: ${dbError.message}`); return; }
     await supabase.from("site_entries").update({ status: "approved" }).eq("id", entry._id);
     const srNo = inserted.id;
-    setLedger(prev => [...prev, { ...entry, _id: inserted.id, srNo, date: entry.date || date, approvalId: null }]);
+    setLedger(prev => [...prev, { ...entry, _id: inserted.id, srNo, date: entry.date || date, approvalId: null, pipelineType: entry.pipelineType || 'MS' }]);
     setSiteEntries(prev => prev.map(e => e._id === entry._id ? { ...e, status: "approved" } : e));
   };
 
@@ -1128,7 +1201,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-<button onClick={() => setCurrentUser(null)}
+<button onClick={() => { setCurrentUser(null); setClusterJunctions({}); loadedClusters.current.clear(); }}
             style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 5, padding: "7px 16px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
             Sign Out
           </button>
@@ -1206,6 +1279,21 @@ export default function App() {
               </div>
             )}
 
+            {/* Pipeline type selector — site-qs only */}
+            {step === "reviewing" && currentUser?.role === "site-qs" && !editingEntry && (
+              <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 24px", marginBottom: 14, display: "flex", alignItems: "center", gap: 16 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7 }}>Pipeline Type</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {["MS", "HDPE"].map(pt => (
+                    <button key={pt} onClick={() => setFormPipelineType(pt)}
+                      style={{ padding: "7px 22px", borderRadius: 6, border: formPipelineType === pt ? "none" : `1px solid ${colors.border}`, background: formPipelineType === pt ? colors.navy : colors.white, color: formPipelineType === pt ? "white" : colors.textMid, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                      {pt} Pipeline
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Review Form */}
             {step === "reviewing" && (
               <div>
@@ -1254,7 +1342,8 @@ export default function App() {
                   </div>
                 )}
                 {GROUPS.map(group => {
-                  const gFields = FIELDS.filter(f => f.group === group.id);
+                  const isHdpeSiteQs = currentUser?.role === "site-qs" && formPipelineType === "HDPE";
+                  const gFields = FIELDS.filter(f => f.group === group.id && (!f.hdpeSiteQsOnly || isHdpeSiteQs));
                   return (
                     <div key={group.id} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, marginBottom: 14, overflow: "hidden" }}>
                       <div style={{ background: colors.formBg, borderBottom: `1px solid ${colors.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 9 }}>
@@ -1274,7 +1363,8 @@ export default function App() {
                                 style={{ width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, resize: "vertical", boxSizing: "border-box" }}
                               />
                             ) : f.type === "select" ? (() => {
-                              const clusterJns = clusterJunctions[form.cluster] || [];
+                              const pt = currentUser?.role === "site-qs" ? formPipelineType : "MS";
+                              const clusterJns = (clusterJunctions[form.cluster] || []).filter(j => (j.pipelineType || 'MS') === pt);
                               const opts = f.options
                                 ? f.options
                                 : f.key === "junctionFrom"
@@ -1342,7 +1432,12 @@ export default function App() {
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                {error && (
+                  <div style={{ background: "#fff5f5", border: "1px solid #fca5a5", color: "#b91c1c", borderRadius: 8, padding: "11px 16px", fontSize: 13, marginTop: 16 }}>
+                    ⚠ {error}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                   <button className="btn-sec" style={{ padding: "11px 20px", background: colors.white, color: colors.textMid, border: `1px solid ${colors.border}`, borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, cursor: "pointer" }}
                     onClick={editingEntry ? cancelEdit : () => {
                       setStep("idle"); setForm(EMPTY_FORM); setCalcFlags([]);
@@ -1462,15 +1557,16 @@ export default function App() {
                         onClick={() => {
                           // Go back to reviewing the last entry
                           const lastIdx = batchEntries.length - 1;
+                          const lastEntry = batchEntries[lastIdx];
                           setBatchEntries(batchEntries.slice(0, lastIdx));
                           setCurrentEntryIndex(lastIdx);
-                          setForm(extractedEntries[lastIdx] || EMPTY_FORM);
-                          setCalcFlags(verifyCalculations(extractedEntries[lastIdx] || EMPTY_FORM));
+                          setForm(lastEntry || extractedEntries[lastIdx] || EMPTY_FORM);
+                          setCalcFlags(verifyCalculations(lastEntry || extractedEntries[lastIdx] || EMPTY_FORM));
                           setStep("reviewing");
                         }}>← Review Last Entry</button>
                       <button className="btn-primary" style={{ flex: 1, padding: "11px 0", background: colors.navy, color: colors.white, border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer" }}
                         onClick={commitAllBatchEntries}>
-                        Commit All {batchEntries.length} {batchEntries.length === 1 ? "Entry" : "Entries"} to Ledger →
+                        {currentUser?.role === "site-qs" ? `Submit ${batchEntries.length} ${batchEntries.length === 1 ? "Entry" : "Entries"} for Approval →` : `Commit All ${batchEntries.length} ${batchEntries.length === 1 ? "Entry" : "Entries"} to Ledger →`}
                       </button>
                     </div>
                   )}
@@ -1494,6 +1590,16 @@ export default function App() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Pipeline type tabs */}
+            <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
+              {[["MS", "MS Pipeline"], ["HDPE", "HDPE Pipeline"]].map(([id, label]) => (
+                <button key={id} onClick={() => { setJunctionPipelineType(id); setJunctionEdit(null); }}
+                  style={{ background: "none", border: "none", borderBottom: junctionPipelineType === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: junctionPipelineType === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: junctionPipelineType === id ? 700 : 500, padding: "10px 22px", cursor: "pointer" }}>
+                  {label}
+                </button>
+              ))}
             </div>
 
             {/* Stats bar */}
@@ -1896,11 +2002,21 @@ export default function App() {
               </div>
             </div>
 
-            {ledger.length === 0 ? (
+            {/* Pipeline type tabs */}
+            <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
+              {[["MS", "MS Pipeline"], ["HDPE", "HDPE Pipeline"]].map(([id, label]) => (
+                <button key={id} onClick={() => { setLedgerPipelineType(id); setSelectedPending(new Set()); setGeneratedApprovalId(null); }}
+                  style={{ background: "none", border: "none", borderBottom: ledgerPipelineType === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: ledgerPipelineType === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: ledgerPipelineType === id ? 700 : 500, padding: "10px 22px", cursor: "pointer" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {clusterLedger.length === 0 ? (
               <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, textAlign: "center", padding: "80px 24px" }}>
                 <div style={{ fontSize: 38, marginBottom: 16 }}>📋</div>
                 <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 18, color: colors.text, marginBottom: 8 }}>No Entries Yet</div>
-                <div style={{ fontSize: 13, color: colors.textLight }}>Add your first compensation entry from the New Entry tab.</div>
+                <div style={{ fontSize: 13, color: colors.textLight }}>No {ledgerPipelineType} pipeline entries for Cluster {selectedLedgerCluster}.</div>
               </div>
             ) : (
               <>
@@ -1947,7 +2063,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Payment Mode", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", "Remarks", ""].map(h => (
+                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Payment Mode", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", "Remarks", ...(ledgerPipelineType === "HDPE" ? ["Entry ID"] : []), ""].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -1995,6 +2111,9 @@ export default function App() {
                               <td style={{ padding: "11px 14px", maxWidth: 160, color: e.remarks ? colors.text : colors.textLight, fontStyle: e.remarks ? "normal" : "italic" }} title={e.remarks || ""}>
                                 {e.remarks ? (e.remarks.length > 30 ? e.remarks.slice(0, 30) + "…" : e.remarks) : "—"}
                               </td>
+                              {ledgerPipelineType === "HDPE" && (
+                                <td style={{ padding: "11px 14px", color: e.entryId ? colors.text : colors.textLight, fontWeight: e.entryId ? 600 : 400 }}>{e.entryId || "—"}</td>
+                              )}
                               <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                 <button onClick={() => handleEdit(e)}
                                   style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
@@ -2214,53 +2333,96 @@ export default function App() {
             </div>
 
             {/* Entry rows */}
-            {siteEntries.filter(e => e.status === activeSiteSubTab).length === 0 ? (
-              <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "40px 24px", textAlign: "center", color: colors.textLight, fontSize: 13 }}>
-                No {activeSiteSubTab} entries.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {siteEntries.filter(e => e.status === activeSiteSubTab).map(e => (
-                  <div key={e._id} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "18px 24px" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: colors.navy }}>#{e._id}</span>
-                          {e.cluster && <span style={{ fontSize: 11, background: "#eef1f9", color: "#3a4566", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>Cluster {e.cluster}</span>}
-                          {e.junctionFrom && e.junctionTo && <span style={{ fontSize: 11, color: colors.textLight }}>{e.junctionFrom} → {e.junctionTo}</span>}
-                          <span style={{ fontSize: 11, color: colors.textLight }}>· {e.date}</span>
-                          {e.submittedBy && <span style={{ fontSize: 11, color: colors.textLight }}>· by {e.submittedBy}</span>}
-                        </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px 20px" }}>
-                          {[["Farmer", e.farmerName], ["Village", e.village], ["Khasra", e.khasraNo], ["Chainage", e.chainageFrom && e.chainageTo ? `${e.chainageFrom}–${e.chainageTo}` : ""], ["Length (m)", e.length], ["Dia (mm)", e.dia], ["Amount (₹)", e.compensationAmount ? `₹${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : ""], ["Crop", e.crop]].filter(([, v]) => v).map(([label, value]) => (
-                            <div key={label}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
-                              <div style={{ fontSize: 12, color: colors.text, marginTop: 1 }}>{value}</div>
-                            </div>
-                          ))}
-                        </div>
-                        {e.remarks && <div style={{ marginTop: 8, fontSize: 12, color: colors.textLight, fontStyle: "italic" }}>Note: {e.remarks}</div>}
+            {(() => {
+              const tabEntries = siteEntries.filter(e => e.status === activeSiteSubTab);
+              if (tabEntries.length === 0) return (
+                <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "40px 24px", textAlign: "center", color: colors.textLight, fontSize: 13 }}>
+                  No {activeSiteSubTab} entries.
+                </div>
+              );
+
+              const renderEntryCard = (e) => (
+                <div key={e._id} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "18px 24px" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: colors.navy }}>#{e._id}</span>
+                        {e.pipelineType === "HDPE" && <span style={{ fontSize: 11, background: "#fef3c7", color: "#92400e", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>HDPE</span>}
+                        {e.cluster && <span style={{ fontSize: 11, background: "#eef1f9", color: "#3a4566", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>Cluster {e.cluster}</span>}
+                        {e.junctionFrom && e.junctionTo && <span style={{ fontSize: 11, color: colors.textLight }}>{e.junctionFrom} → {e.junctionTo}</span>}
+                        <span style={{ fontSize: 11, color: colors.textLight }}>· {e.date}</span>
+                        {e.submittedBy && <span style={{ fontSize: 11, color: colors.textLight }}>· by {e.submittedBy}</span>}
                       </div>
-                      {/* Admin actions — only on submitted tab */}
-                      {activeSiteSubTab === "submitted" && (currentUser?.role === "admin" || currentUser?.role === "super-admin") && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 100 }}>
-                          <button onClick={() => approveSiteEntry(e)}
-                            style={{ padding: "8px 18px", background: colors.green, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                            ✓ Approve
-                          </button>
-                          <button onClick={() => rejectSiteEntry(e._id)}
-                            style={{ padding: "8px 18px", background: "none", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                            ✕ Reject
-                          </button>
-                        </div>
-                      )}
-                      {activeSiteSubTab === "approved" && <span style={{ fontSize: 11, fontWeight: 700, color: colors.green, background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 5, padding: "4px 10px", whiteSpace: "nowrap" }}>✓ Approved → Ledger</span>}
-                      {activeSiteSubTab === "rejected" && <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fff5f5", border: "1px solid #fca5a5", borderRadius: 5, padding: "4px 10px", whiteSpace: "nowrap" }}>✕ Rejected</span>}
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px 20px" }}>
+                        {[["Farmer", e.farmerName], ["Village", e.village], ["Khasra", e.khasraNo], ["Chainage", e.chainageFrom && e.chainageTo ? `${e.chainageFrom}–${e.chainageTo}` : ""], ["Length (m)", e.length], ["Dia (mm)", e.dia], ["Amount (₹)", e.compensationAmount ? `₹${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : ""], ["Crop", e.crop], ...(e.pipelineType === "HDPE" && e.entryId ? [["Entry ID", e.entryId]] : [])].filter(([, v]) => v).map(([label, value]) => (
+                          <div key={label}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
+                            <div style={{ fontSize: 12, color: colors.text, marginTop: 1 }}>{value}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {e.remarks && <div style={{ marginTop: 8, fontSize: 12, color: colors.textLight, fontStyle: "italic" }}>Note: {e.remarks}</div>}
                     </div>
+                    {activeSiteSubTab === "submitted" && (currentUser?.role === "admin" || currentUser?.role === "super-admin") && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 100 }}>
+                        <button onClick={() => approveSiteEntry(e)}
+                          style={{ padding: "8px 18px", background: colors.green, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                          ✓ Approve
+                        </button>
+                        <button onClick={() => rejectSiteEntry(e._id)}
+                          style={{ padding: "8px 18px", background: "none", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                          ✕ Reject
+                        </button>
+                      </div>
+                    )}
+                    {activeSiteSubTab === "approved" && <span style={{ fontSize: 11, fontWeight: 700, color: colors.green, background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 5, padding: "4px 10px", whiteSpace: "nowrap" }}>✓ Approved → Ledger</span>}
+                    {activeSiteSubTab === "rejected" && <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fff5f5", border: "1px solid #fca5a5", borderRadius: 5, padding: "4px 10px", whiteSpace: "nowrap" }}>✕ Rejected</span>}
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              );
+
+              if (activeSiteSubTab !== "submitted") {
+                return <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{tabEntries.map(renderEntryCard)}</div>;
+              }
+
+              // Group submitted entries by Entry ID
+              const groups = {};
+              const ungrouped = [];
+              tabEntries.forEach(e => {
+                if (e.entryId) {
+                  if (!groups[e.entryId]) groups[e.entryId] = [];
+                  groups[e.entryId].push(e);
+                } else {
+                  ungrouped.push(e);
+                }
+              });
+
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                  {Object.entries(groups).map(([entryId, entries]) => (
+                    <div key={entryId}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 5, padding: "3px 12px", letterSpacing: 0.5 }}>Entry ID: {entryId}</span>
+                        <span style={{ fontSize: 11, color: colors.textLight }}>{entries.length} {entries.length === 1 ? "entry" : "entries"}</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingLeft: 12, borderLeft: `3px solid #fde68a` }}>
+                        {entries.map(renderEntryCard)}
+                      </div>
+                    </div>
+                  ))}
+                  {ungrouped.length > 0 && (
+                    <div>
+                      {Object.keys(groups).length > 0 && (
+                        <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 10 }}>Other Entries</div>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {ungrouped.map(renderEntryCard)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
