@@ -17,16 +17,21 @@ export default function Login({ onLogin }) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const { data, error: dbErr } = await supabase
-      .from("app_users")
+    const email = `${username.trim().toLowerCase()}@cropcomp.internal`;
+    const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (authErr || !authData?.user) {
+      setLoading(false);
+      setError("Invalid username or password.");
+      return;
+    }
+    const { data: profile, error: profileErr } = await supabase
+      .from("profiles")
       .select("id, username, role")
-      .eq("username", username.trim())
-      .eq("password", password)
-      .maybeSingle();
+      .eq("id", authData.user.id)
+      .single();
     setLoading(false);
-    if (dbErr) { setError("Login service unavailable. Please try again."); return; }
-    if (!data) { setError("Invalid username or password."); return; }
-    onLogin(data);
+    if (profileErr || !profile) { setError("Login service unavailable. Please try again."); return; }
+    onLogin(profile);
   };
 
   return (

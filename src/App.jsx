@@ -387,6 +387,21 @@ function exportToExcel(entries, approvalId) {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
+
+  // Restore session on page reload and listen for auth state changes
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) return;
+      const { data: profile } = await supabase
+        .from("profiles").select("id, username, role").eq("id", session.user.id).single();
+      if (profile) setCurrentUser(profile);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_OUT" || !session) { setCurrentUser(null); return; }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const [ledger, setLedger] = useState([]);
   const [editingEntry, setEditingEntry] = useState(null); // null = new, otherwise entry being edited
   const [form, setForm] = useState(EMPTY_FORM);
@@ -562,7 +577,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUser || currentUser.role !== "super-admin" || activeTab !== "usermgmt") return;
-    supabase.from("app_users").select("id, username, role").order("id").then(({ data }) => {
+    supabase.from("profiles").select("id, username, role").order("username").then(({ data }) => {
       if (!data) return;
       setUserMgmtUsers(data);
       const forms = {};
@@ -575,15 +590,17 @@ export default function App() {
   const saveUserCredentials = async (userId) => {
     const f = userMgmtForms[userId];
     if (!f || !f.username.trim()) return;
+    if (f.password.trim()) {
+      setUserMgmtMsg("Password changes must be done via Supabase Dashboard → Authentication → Users.");
+      return;
+    }
     setUserMgmtSaving(userId);
     setUserMgmtMsg("");
-    const updates = { username: f.username.trim() };
-    if (f.password.trim()) updates.password = f.password.trim();
-    const { error } = await supabase.from("app_users").update(updates).eq("id", userId);
+    const { error } = await supabase.from("profiles").update({ username: f.username.trim() }).eq("id", userId);
     setUserMgmtSaving(null);
     if (error) { setUserMgmtMsg(`Error: ${error.message}`); return; }
-    setUserMgmtMsg("Credentials updated successfully.");
-    setUserMgmtUsers(prev => prev.map(u => u.id === userId ? { ...u, username: updates.username } : u));
+    setUserMgmtMsg("Username updated successfully.");
+    setUserMgmtUsers(prev => prev.map(u => u.id === userId ? { ...u, username: f.username.trim() } : u));
     setUserMgmtForms(prev => ({ ...prev, [userId]: { ...prev[userId], password: "" } }));
   };
 
@@ -1202,7 +1219,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-<button onClick={() => { setCurrentUser(null); setClusterJunctions({}); loadedClusters.current.clear(); }}
+<button onClick={async () => { await supabase.auth.signOut(); setCurrentUser(null); setClusterJunctions({}); loadedClusters.current.clear(); }}
             style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 5, padding: "7px 16px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
             Sign Out
           </button>
