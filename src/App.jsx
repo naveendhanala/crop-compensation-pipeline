@@ -594,7 +594,11 @@ export default function App() {
     setUserMgmtMsg("");
     const payload = { userId, username: f.username.trim() };
     if (f.password.trim()) payload.password = f.password.trim();
-    const { data: fnData, error } = await supabase.functions.invoke("admin-update-user", { body: payload });
+    const { data: { session } } = await supabase.auth.getSession();
+    const { data: fnData, error } = await supabase.functions.invoke("admin-update-user", {
+      body: payload,
+      headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+    });
     setUserMgmtSaving(null);
     if (error) { setUserMgmtMsg(`Error: ${error.message} — ${JSON.stringify(fnData)}`); return; }
     setUserMgmtMsg("Credentials updated successfully.");
