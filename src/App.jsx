@@ -594,9 +594,9 @@ export default function App() {
     setUserMgmtMsg("");
     const payload = { userId, username: f.username.trim() };
     if (f.password.trim()) payload.password = f.password.trim();
-    const { error } = await supabase.functions.invoke("admin-update-user", { body: payload });
+    const { data: fnData, error } = await supabase.functions.invoke("admin-update-user", { body: payload });
     setUserMgmtSaving(null);
-    if (error) { setUserMgmtMsg(`Error: ${error.message}`); return; }
+    if (error) { setUserMgmtMsg(`Error: ${error.message} — ${JSON.stringify(fnData)}`); return; }
     setUserMgmtMsg("Credentials updated successfully.");
     setUserMgmtUsers(prev => prev.map(u => u.id === userId ? { ...u, username: payload.username } : u));
     setUserMgmtForms(prev => ({ ...prev, [userId]: { ...prev[userId], password: "" } }));

@@ -34,11 +34,16 @@ Deno.serve(async (req: Request) => {
   );
 
   const { data: { user: caller }, error: callerErr } = await callerClient.auth.getUser();
+  console.log("caller:", JSON.stringify(caller?.user_metadata), "err:", callerErr?.message);
   if (callerErr || !caller) {
-    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: "Unauthorized", detail: callerErr?.message }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
   if (caller.user_metadata?.role !== "super-admin") {
-    return new Response("Forbidden", { status: 403, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: "Forbidden", role: caller.user_metadata?.role }), {
+      status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   const { userId, username, password } = await req.json() as {
