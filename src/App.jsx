@@ -403,6 +403,7 @@ export default function App() {
   const [formPipelineType, setFormPipelineType] = useState("MS"); // for new entry, site-qs only
   const [siteEntries, setSiteEntries] = useState([]);
   const [activeSiteSubTab, setActiveSiteSubTab] = useState("submitted");
+  const [selectedSiteEntry, setSelectedSiteEntry] = useState(null);
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
   const [clusterJunctions, setClusterJunctions] = useState({});
@@ -2316,113 +2317,168 @@ export default function App() {
         {/* ---- SITE ENTRIES TAB ---- */}
         {activeTab === "siteentries" && (
           <div>
-            <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: colors.text, marginBottom: 6 }}>Site Entries</div>
-            <div style={{ fontSize: 13, color: colors.textLight, marginBottom: 20 }}>Entries submitted by site team. Admin can approve or reject from the Submitted tab.</div>
-
-            {/* Sub-tabs */}
-            <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
-              {[["submitted", "Submitted"], ["approved", "Approved"], ["rejected", "Rejected"]].map(([id, label]) => {
-                const count = siteEntries.filter(e => e.status === id).length;
-                return (
-                  <button key={id} onClick={() => setActiveSiteSubTab(id)}
-                    style={{ background: "none", border: "none", borderBottom: activeSiteSubTab === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: activeSiteSubTab === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: activeSiteSubTab === id ? 700 : 500, padding: "10px 20px", cursor: "pointer" }}>
-                    {label} <span style={{ background: activeSiteSubTab === id ? colors.navy : colors.border, color: activeSiteSubTab === id ? "white" : colors.textLight, borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{count}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Entry rows */}
-            {(() => {
-              const tabEntries = siteEntries.filter(e => e.status === activeSiteSubTab);
-              if (tabEntries.length === 0) return (
-                <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "40px 24px", textAlign: "center", color: colors.textLight, fontSize: 13 }}>
-                  No {activeSiteSubTab} entries.
-                </div>
-              );
-
-              const renderEntryCard = (e) => (
-                <div key={e._id} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "18px 24px" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: colors.navy }}>#{e._id}</span>
-                        {e.pipelineType === "HDPE" && <span style={{ fontSize: 11, background: "#fef3c7", color: "#92400e", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>HDPE</span>}
-                        {e.cluster && <span style={{ fontSize: 11, background: "#eef1f9", color: "#3a4566", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>Cluster {e.cluster}</span>}
-                        {e.junctionFrom && e.junctionTo && <span style={{ fontSize: 11, color: colors.textLight }}>{e.junctionFrom} → {e.junctionTo}</span>}
-                        <span style={{ fontSize: 11, color: colors.textLight }}>· {e.date}</span>
-                        {e.submittedBy && <span style={{ fontSize: 11, color: colors.textLight }}>· by {e.submittedBy}</span>}
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px 20px" }}>
-                        {[["Farmer", e.farmerName], ["Village", e.village], ["Khasra", e.khasraNo], ["Chainage", e.chainageFrom && e.chainageTo ? `${e.chainageFrom}–${e.chainageTo}` : ""], ["Length (m)", e.length], ["Dia (mm)", e.dia], ["Amount (₹)", e.compensationAmount ? `₹${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : ""], ["Crop", e.crop], ...(e.pipelineType === "HDPE" && e.entryId ? [["Entry ID", e.entryId]] : [])].filter(([, v]) => v).map(([label, value]) => (
-                          <div key={label}>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
-                            <div style={{ fontSize: 12, color: colors.text, marginTop: 1 }}>{value}</div>
-                          </div>
-                        ))}
-                      </div>
-                      {e.remarks && <div style={{ marginTop: 8, fontSize: 12, color: colors.textLight, fontStyle: "italic" }}>Note: {e.remarks}</div>}
-                    </div>
-                    {activeSiteSubTab === "submitted" && (currentUser?.role === "admin" || currentUser?.role === "super-admin") && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 100 }}>
-                        <button onClick={() => approveSiteEntry(e)}
-                          style={{ padding: "8px 18px", background: colors.green, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            {/* Detail view */}
+            {selectedSiteEntry ? (() => {
+              const e = selectedSiteEntry;
+              const isAdmin = currentUser?.role === "admin" || currentUser?.role === "super-admin";
+              const detailFields = [
+                ["Date", e.date], ["Submitted By", e.submittedBy], ["Cluster", e.cluster],
+                ["Village", e.village], ["Khasra No.", e.khasraNo],
+                ["Junction From", e.junctionFrom], ["Junction To", e.junctionTo],
+                ["Chainage From", e.chainageFrom], ["Chainage To", e.chainageTo],
+                ["Length (m)", e.length], ["Diameter (mm)", e.dia], ["ROW (m)", e.row],
+                ...(e.pipelineType === "HDPE" && e.entryId ? [["Entry ID", e.entryId]] : []),
+                ["Remarks", e.remarks],
+                ["Land Owner Name", e.landOwnerName], ["Farmer / Lessee Name", e.farmerName],
+                ["Crop", e.crop], ["Affected Area (Ha)", e.affectedArea],
+                ["Mandi Rate (Rs/quintal)", e.mandiRate], ["Yield (quintals/ha)", e.yield],
+                ["Compensation Amount (Rs)", e.compensationAmount ? `₹${parseFloat(e.compensationAmount).toLocaleString("en-IN")}` : ""],
+                ["Payment Mode", e.paymentMode], ["Bank Name", e.bankName],
+                ["Account Number", e.accountNo], ["IFSC Code", e.ifscCode],
+              ].filter(([, v]) => v);
+              return (
+                <div>
+                  {/* Top bar */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                    <button onClick={() => setSelectedSiteEntry(null)}
+                      style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "7px 14px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.textMid, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                      ← Back
+                    </button>
+                    <span style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 17, fontWeight: 600, color: colors.text }}>
+                      Site Entry #{e._id}
+                    </span>
+                    {e.pipelineType === "HDPE" && <span style={{ fontSize: 11, background: "#fef3c7", color: "#92400e", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>HDPE</span>}
+                    {e.cluster && <span style={{ fontSize: 11, background: "#eef1f9", color: "#3a4566", borderRadius: 4, padding: "2px 8px", fontWeight: 600 }}>Cluster {e.cluster}</span>}
+                    {e.status === "submitted" && <span style={{ fontSize: 11, fontWeight: 700, background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", borderRadius: 4, padding: "2px 10px" }}>Pending Review</span>}
+                    {e.status === "approved" && <span style={{ fontSize: 11, fontWeight: 700, background: "#f0fdf4", color: colors.green, border: "1px solid #86efac", borderRadius: 4, padding: "2px 10px" }}>✓ Approved</span>}
+                    {e.status === "rejected" && <span style={{ fontSize: 11, fontWeight: 700, background: "#fff5f5", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 4, padding: "2px 10px" }}>✕ Rejected</span>}
+                    {isAdmin && e.status === "submitted" && (
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
+                        <button onClick={async () => { await approveSiteEntry(e); setSelectedSiteEntry(null); setActiveSiteSubTab("approved"); }}
+                          disabled={loading}
+                          style={{ padding: "8px 22px", background: colors.green, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
                           ✓ Approve
                         </button>
-                        <button onClick={() => rejectSiteEntry(e._id)}
-                          style={{ padding: "8px 18px", background: "none", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                        <button onClick={async () => { await rejectSiteEntry(e._id); setSelectedSiteEntry(null); setActiveSiteSubTab("rejected"); }}
+                          disabled={loading}
+                          style={{ padding: "8px 22px", background: "none", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
                           ✕ Reject
                         </button>
                       </div>
                     )}
-                    {activeSiteSubTab === "approved" && <span style={{ fontSize: 11, fontWeight: 700, color: colors.green, background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 5, padding: "4px 10px", whiteSpace: "nowrap" }}>✓ Approved → Ledger</span>}
-                    {activeSiteSubTab === "rejected" && <span style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", background: "#fff5f5", border: "1px solid #fca5a5", borderRadius: 5, padding: "4px 10px", whiteSpace: "nowrap" }}>✕ Rejected</span>}
+                  </div>
+
+                  {/* Field grid */}
+                  <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "24px 28px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "18px 28px" }}>
+                      {detailFields.map(([label, value]) => (
+                        <div key={label}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 3 }}>{label}</div>
+                          <div style={{ fontSize: 13, color: colors.text }}>{value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {e.documentPath && (
+                      <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${colors.borderLight}` }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 4 }}>Document</div>
+                        <a href={supabase.storage.from("documents").getPublicUrl(e.documentPath).data.publicUrl} target="_blank" rel="noreferrer"
+                          style={{ fontSize: 12, color: colors.navy, textDecoration: "underline" }}>View attached document</a>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
+            })() : (
+              <>
+                <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: colors.text, marginBottom: 6 }}>Site Entries</div>
+                <div style={{ fontSize: 13, color: colors.textLight, marginBottom: 20 }}>Entries submitted by site team. Click any entry to view details. Admin can approve or reject from the detail view.</div>
 
-              if (activeSiteSubTab !== "submitted") {
-                return <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{tabEntries.map(renderEntryCard)}</div>;
-              }
-
-              // Group submitted entries by Entry ID
-              const groups = {};
-              const ungrouped = [];
-              tabEntries.forEach(e => {
-                if (e.entryId) {
-                  if (!groups[e.entryId]) groups[e.entryId] = [];
-                  groups[e.entryId].push(e);
-                } else {
-                  ungrouped.push(e);
-                }
-              });
-
-              return (
-                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                  {Object.entries(groups).map(([entryId, entries]) => (
-                    <div key={entryId}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 5, padding: "3px 12px", letterSpacing: 0.5 }}>Entry ID: {entryId}</span>
-                        <span style={{ fontSize: 11, color: colors.textLight }}>{entries.length} {entries.length === 1 ? "entry" : "entries"}</span>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingLeft: 12, borderLeft: `3px solid #fde68a` }}>
-                        {entries.map(renderEntryCard)}
-                      </div>
-                    </div>
-                  ))}
-                  {ungrouped.length > 0 && (
-                    <div>
-                      {Object.keys(groups).length > 0 && (
-                        <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 10 }}>Other Entries</div>
-                      )}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {ungrouped.map(renderEntryCard)}
-                      </div>
-                    </div>
-                  )}
+                {/* Sub-tabs */}
+                <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
+                  {[["submitted", "Submitted"], ["approved", "Approved"], ["rejected", "Rejected"]].map(([id, label]) => {
+                    const count = siteEntries.filter(e => e.status === id).length;
+                    return (
+                      <button key={id} onClick={() => setActiveSiteSubTab(id)}
+                        style={{ background: "none", border: "none", borderBottom: activeSiteSubTab === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: activeSiteSubTab === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: activeSiteSubTab === id ? 700 : 500, padding: "10px 20px", cursor: "pointer" }}>
+                        {label} <span style={{ background: activeSiteSubTab === id ? colors.navy : colors.border, color: activeSiteSubTab === id ? "white" : colors.textLight, borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 4 }}>{count}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-              );
-            })()}
+
+                {/* Entry list */}
+                {(() => {
+                  const tabEntries = siteEntries.filter(e => e.status === activeSiteSubTab);
+                  if (tabEntries.length === 0) return (
+                    <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "40px 24px", textAlign: "center", color: colors.textLight, fontSize: 13 }}>
+                      No {activeSiteSubTab} entries.
+                    </div>
+                  );
+
+                  const renderRow = (e) => (
+                    <div key={e._id} onClick={() => setSelectedSiteEntry(e)}
+                      className="trow"
+                      style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "background 0.12s" }}>
+                      <span style={{ fontSize: 11, color: colors.textLight, minWidth: 36 }}>#{e._id}</span>
+                      <span style={{ fontSize: 11, color: colors.textLight, minWidth: 76 }}>{e.date}</span>
+                      {e.pipelineType === "HDPE"
+                        ? <span style={{ fontSize: 10, background: "#fef3c7", color: "#92400e", borderRadius: 3, padding: "1px 6px", fontWeight: 700, flexShrink: 0 }}>HDPE</span>
+                        : <span style={{ fontSize: 10, background: "#eef1f9", color: "#3a4566", borderRadius: 3, padding: "1px 6px", fontWeight: 700, flexShrink: 0 }}>MS</span>}
+                      {e.cluster && <span style={{ fontSize: 11, color: colors.textMid, flexShrink: 0 }}>Cl {e.cluster}</span>}
+                      {e.junctionFrom && e.junctionTo && <span style={{ fontSize: 11, color: colors.textLight, flexShrink: 0 }}>{e.junctionFrom} → {e.junctionTo}</span>}
+                      <span style={{ fontSize: 13, fontWeight: 600, color: colors.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.farmerName || "—"}</span>
+                      {e.village && <span style={{ fontSize: 11, color: colors.textLight, flexShrink: 0 }}>{e.village}</span>}
+                      {e.compensationAmount && <span style={{ fontSize: 12, fontWeight: 600, color: colors.navy, flexShrink: 0 }}>₹{parseFloat(e.compensationAmount).toLocaleString("en-IN")}</span>}
+                      {activeSiteSubTab === "approved" && <span style={{ fontSize: 10, fontWeight: 700, color: colors.green, background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 4, padding: "2px 8px", flexShrink: 0 }}>✓ Approved</span>}
+                      {activeSiteSubTab === "rejected" && <span style={{ fontSize: 10, fontWeight: 700, color: "#b91c1c", background: "#fff5f5", border: "1px solid #fca5a5", borderRadius: 4, padding: "2px 8px", flexShrink: 0 }}>✕ Rejected</span>}
+                      <span style={{ fontSize: 14, color: colors.textLight, flexShrink: 0 }}>›</span>
+                    </div>
+                  );
+
+                  if (activeSiteSubTab !== "submitted") {
+                    return <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>{tabEntries.map(renderRow)}</div>;
+                  }
+
+                  // Group submitted entries by Entry ID
+                  const groups = {};
+                  const ungrouped = [];
+                  tabEntries.forEach(e => {
+                    if (e.entryId) {
+                      if (!groups[e.entryId]) groups[e.entryId] = [];
+                      groups[e.entryId].push(e);
+                    } else {
+                      ungrouped.push(e);
+                    }
+                  });
+
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                      {Object.entries(groups).map(([entryId, entries]) => (
+                        <div key={entryId}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: 5, padding: "3px 12px", letterSpacing: 0.5 }}>Entry ID: {entryId}</span>
+                            <span style={{ fontSize: 11, color: colors.textLight }}>{entries.length} {entries.length === 1 ? "entry" : "entries"}</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5, paddingLeft: 12, borderLeft: `3px solid #fde68a` }}>
+                            {entries.map(renderRow)}
+                          </div>
+                        </div>
+                      ))}
+                      {ungrouped.length > 0 && (
+                        <div>
+                          {Object.keys(groups).length > 0 && (
+                            <div style={{ fontSize: 11, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 8 }}>Other Entries</div>
+                          )}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            {ungrouped.map(renderRow)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </>
+            )}
           </div>
         )}
 
