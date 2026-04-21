@@ -590,17 +590,15 @@ export default function App() {
   const saveUserCredentials = async (userId) => {
     const f = userMgmtForms[userId];
     if (!f || !f.username.trim()) return;
-    if (f.password.trim()) {
-      setUserMgmtMsg("Password changes must be done via Supabase Dashboard → Authentication → Users.");
-      return;
-    }
     setUserMgmtSaving(userId);
     setUserMgmtMsg("");
-    const { error } = await supabase.from("profiles").update({ username: f.username.trim() }).eq("id", userId);
+    const payload = { userId, username: f.username.trim() };
+    if (f.password.trim()) payload.password = f.password.trim();
+    const { error } = await supabase.functions.invoke("admin-update-user", { body: payload });
     setUserMgmtSaving(null);
     if (error) { setUserMgmtMsg(`Error: ${error.message}`); return; }
-    setUserMgmtMsg("Username updated successfully.");
-    setUserMgmtUsers(prev => prev.map(u => u.id === userId ? { ...u, username: f.username.trim() } : u));
+    setUserMgmtMsg("Credentials updated successfully.");
+    setUserMgmtUsers(prev => prev.map(u => u.id === userId ? { ...u, username: payload.username } : u));
     setUserMgmtForms(prev => ({ ...prev, [userId]: { ...prev[userId], password: "" } }));
   };
 
