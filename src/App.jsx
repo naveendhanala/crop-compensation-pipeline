@@ -305,7 +305,7 @@ function downloadAllJunctionsExcel(cluster, junctions, ledger) {
 
 const PROJECT_NAME = "CHINKI BORAS BARRAGE COMBINED MULTIPURPOSE PROJECT";
 
-function downloadTopSheetExcel(entries, approvalId, cluster) {
+function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS") {
   const rowWidth = entries[0]?.row || "";
   const date = entries[0]?.date || new Date().toLocaleDateString("en-IN");
   const headers = ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PRODUCTIVITY IN REQUIRED AREA (C=AxB)", "RATE/QUINTAL (\u20b9) (D)", "AMOUNT (E=CxD)", "FARMER / LESSEE NAME", "PAYMENT MODE", "REMARKS"];
@@ -367,7 +367,7 @@ function downloadTopSheetExcel(entries, approvalId, cluster) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `TopSheet_${approvalId}_Cluster${cluster}_${new Date().toISOString().split("T")[0]}.xls`;
+  a.download = `TopSheet_${approvalId}_${pipelineType}_Cluster${cluster}_${new Date().toISOString().split("T")[0]}.xls`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -420,6 +420,9 @@ export default function App() {
   const [activeSiteSubTab, setActiveSiteSubTab] = useState("submitted");
   const [selectedSiteEntry, setSelectedSiteEntry] = useState(null);
   const [siteEntryConfirm, setSiteEntryConfirm] = useState(null); // 'approve' | 'reject' | null
+  const [rejectRemarksInput, setRejectRemarksInput] = useState("");
+  const [selectedSiteCluster, setSelectedSiteCluster] = useState("A");
+  const [siteEntryPipelineType, setSiteEntryPipelineType] = useState("MS");
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
   const [clusterJunctions, setClusterJunctions] = useState({});
@@ -428,6 +431,7 @@ export default function App() {
   const [selectedTopsheetCluster, setSelectedTopsheetCluster] = useState("A");
   const [topsheetSearch, setTopsheetSearch] = useState("");
   const [topsheetSelected, setTopsheetSelected] = useState(null);
+  const [topsheetPipelineType, setTopsheetPipelineType] = useState("MS");
   const [expandedJunctions, setExpandedJunctions] = useState(new Set()); // indices of expanded junction rows (empty = all collapsed)
   const [junctionEdit, setJunctionEdit] = useState(null); // index of row being edited
   const [junctionEditForm, setJunctionEditForm] = useState({ from: "", to: "", length: "", dia: "" });
@@ -566,6 +570,7 @@ export default function App() {
         documentPath: row.document_path || null,
         pipelineType: row.pipeline_type || 'MS',
         entryId: row.entry_id || '',
+        rejectRemarks: row.reject_remarks || '',
       })));
     });
   }, [!!currentUser]);
@@ -1150,10 +1155,11 @@ export default function App() {
     setSiteEntries(prev => prev.map(e => e._id === entry._id ? { ...e, status: "approved" } : e));
   };
 
-  const rejectSiteEntry = async (id) => {
-    const { error: dbError } = await supabase.from("site_entries").update({ status: "rejected" }).eq("id", id);
-    if (dbError) { setError(`Failed to reject entry: ${dbError.message}`); return; }
-    setSiteEntries(prev => prev.map(e => e._id === id ? { ...e, status: "rejected" } : e));
+  const rejectSiteEntry = async (id, remarks) => {
+    const { error: dbError } = await supabase.from("site_entries").update({ status: "rejected", reject_remarks: remarks }).eq("id", id);
+    if (dbError) { setError(`Failed to reject entry: ${dbError.message}`); return false; }
+    setSiteEntries(prev => prev.map(e => e._id === id ? { ...e, status: "rejected", rejectRemarks: remarks } : e));
+    return true;
   };
 
   const colors = {
@@ -1310,6 +1316,17 @@ export default function App() {
                     </button>
                   ))}
                 </div>
+                {formPipelineType === "HDPE" && (
+                  <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7 }}>Entry ID</span>
+                    <input
+                      value={form.entryId || ""}
+                      onChange={e => setForm(prev => ({ ...prev, entryId: e.target.value }))}
+                      placeholder="e.g. E-001"
+                      style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 12px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: 150, outline: "none" }}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1362,7 +1379,7 @@ export default function App() {
                 )}
                 {GROUPS.map(group => {
                   const isHdpeSiteQs = currentUser?.role === "site-qs" && formPipelineType === "HDPE";
-                  const gFields = FIELDS.filter(f => f.group === group.id && (!f.hdpeSiteQsOnly || isHdpeSiteQs));
+                  const gFields = FIELDS.filter(f => f.group === group.id && (!f.hdpeSiteQsOnly || isHdpeSiteQs) && !(isHdpeSiteQs && f.key === "entryId"));
                   return (
                     <div key={group.id} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, marginBottom: 14, overflow: "hidden" }}>
                       <div style={{ background: colors.formBg, borderBottom: `1px solid ${colors.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 9 }}>
@@ -1583,6 +1600,16 @@ export default function App() {
                           setCalcFlags(verifyCalculations(lastEntry || extractedEntries[lastIdx] || EMPTY_FORM));
                           setStep("reviewing");
                         }}>← Review Last Entry</button>
+                      <button className="btn-sec" style={{ padding: "11px 20px", background: colors.white, color: colors.navy, border: `1px solid ${colors.navy}`, borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                        onClick={() => {
+                          const currentEntryId = batchEntries[batchEntries.length - 1]?.entryId || form.entryId || "";
+                          setForm({ ...EMPTY_FORM, entryId: currentEntryId });
+                          setCalcFlags([]);
+                          setExtractedEntries([]);
+                          setCurrentEntryIndex(batchEntries.length);
+                          setUploadFile(null);
+                          setStep("reviewing");
+                        }}>+ Add Another Entry</button>
                       <button className="btn-primary" style={{ flex: 1, padding: "11px 0", background: colors.navy, color: colors.white, border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 14, fontWeight: 600, cursor: "pointer" }}
                         onClick={commitAllBatchEntries}>
                         {currentUser?.role === "site-qs" ? `Submit ${batchEntries.length} ${batchEntries.length === 1 ? "Entry" : "Entries"} for Approval →` : `Commit All ${batchEntries.length} ${batchEntries.length === 1 ? "Entry" : "Entries"} to Ledger →`}
@@ -1847,7 +1874,7 @@ export default function App() {
 
         {/* ---- TOP SHEETS TAB ---- */}
         {activeTab === "topsheets" && (() => {
-          const allApproved = ledger.filter(e => e.approvalId);
+          const allApproved = ledger.filter(e => e.approvalId && (e.pipelineType || 'MS') === topsheetPipelineType);
           const grouped = allApproved.reduce((acc, e) => {
             (acc[e.approvalId] = acc[e.approvalId] || []).push(e);
             return acc;
@@ -1862,6 +1889,19 @@ export default function App() {
           const thStyle = { background: "#f0f4ff", color: "#3a4566", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, padding: "7px 8px", border: `1px solid ${colors.border}`, textAlign: "center", whiteSpace: "nowrap" };
           const tdStyle = { padding: "7px 8px", border: `1px solid ${colors.border}`, fontSize: 12, textAlign: "center", verticalAlign: "middle" };
           return (
+            <div>
+              {/* Pipeline type sub-tabs */}
+              <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
+                {[["MS", "MS Pipeline"], ["HDPE", "HDPE Pipeline"]].map(([pt, label]) => (
+                  <button key={pt} onClick={() => { setTopsheetPipelineType(pt); setTopsheetSelected(null); setTopsheetSearch(""); }}
+                    style={{ background: "none", border: "none", borderBottom: topsheetPipelineType === pt ? `3px solid ${colors.navy}` : "3px solid transparent", color: topsheetPipelineType === pt ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: topsheetPipelineType === pt ? 700 : 500, padding: "10px 24px", cursor: "pointer" }}>
+                    {label}
+                    <span style={{ background: topsheetPipelineType === pt ? colors.navy : colors.border, color: topsheetPipelineType === pt ? "white" : colors.textLight, borderRadius: 10, padding: "1px 7px", fontSize: 11, marginLeft: 6 }}>
+                      {Object.keys(ledger.filter(e => e.approvalId && (e.pipelineType || 'MS') === pt).reduce((acc, e) => { acc[e.approvalId] = true; return acc; }, {})).length}
+                    </span>
+                  </button>
+                ))}
+              </div>
             <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
               {/* Left panel — search + list */}
               <div style={{ width: 260, flexShrink: 0 }}>
@@ -1914,12 +1954,12 @@ export default function App() {
                       <div style={{ background: "#f0f4ff", borderBottom: `1px solid ${colors.border}`, padding: "14px 20px" }}>
                         <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 15, fontWeight: 700, color: colors.navy, textAlign: "center", marginBottom: 8 }}>{PROJECT_NAME}</div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: 12, color: colors.textMid, fontWeight: 600 }}>CLUSTER {cluster}</span>
+                          <span style={{ fontSize: 12, color: colors.textMid, fontWeight: 600 }}>CLUSTER {cluster} &nbsp;·&nbsp; {topsheetPipelineType} Pipeline</span>
                           <span style={{ fontSize: 12, color: colors.textMid, fontWeight: 600 }}>CROP COMPENSATION ABSTRACT</span>
                           <span style={{ fontSize: 12, color: colors.textMid }}>S.No: <strong>{topsheetSelected}</strong> &nbsp;&nbsp; Date: {date}</span>
                         </div>
                         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-                          <button onClick={() => downloadTopSheetExcel(entries, topsheetSelected, cluster)}
+                          <button onClick={() => downloadTopSheetExcel(entries, topsheetSelected, cluster, topsheetPipelineType)}
                             style={{ background: colors.navy, color: "white", border: "none", borderRadius: 5, padding: "7px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                             ↓ Download Excel
                           </button>
@@ -2001,6 +2041,7 @@ export default function App() {
                   );
                 })()}
               </div>
+            </div>
             </div>
           );
         })()}
@@ -2358,7 +2399,7 @@ export default function App() {
                 <div>
                   {/* Top bar */}
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-                    <button onClick={() => { setSelectedSiteEntry(null); setSiteEntryConfirm(null); }}
+                    <button onClick={() => { setSelectedSiteEntry(null); setSiteEntryConfirm(null); setRejectRemarksInput(""); }}
                       style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "7px 14px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.textMid, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                       ← Back
                     </button>
@@ -2382,13 +2423,10 @@ export default function App() {
                               style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
                           </span>
                         ) : siteEntryConfirm === "reject" ? (
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 12, color: "#b91c1c", fontWeight: 600 }}>Confirm reject?</span>
-                            <button onClick={async () => { setSiteEntryConfirm(null); await rejectSiteEntry(e._id); setSelectedSiteEntry(null); setActiveSiteSubTab("rejected"); }}
-                              disabled={loading}
-                              style={{ background: "#dc2626", color: "white", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
-                            <button onClick={() => setSiteEntryConfirm(null)}
-                              style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 12, color: "#b91c1c", fontWeight: 600 }}>Adding rejection remarks…</span>
+                            <button onClick={() => { setSiteEntryConfirm(null); setRejectRemarksInput(""); }}
+                              style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Cancel</button>
                           </span>
                         ) : (
                           <>
@@ -2407,6 +2445,41 @@ export default function App() {
                       </div>
                     )}
                   </div>
+
+                  {/* Rejection remarks input panel (admin, when confirming reject) */}
+                  {isAdmin && e.status === "submitted" && siteEntryConfirm === "reject" && (
+                    <div style={{ background: "#fff5f5", border: "1px solid #fca5a5", borderRadius: 8, padding: "16px 20px", marginBottom: 20 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#b91c1c", marginBottom: 8 }}>Rejection Remarks <span style={{ color: "#dc2626" }}>*</span></div>
+                      <textarea
+                        autoFocus
+                        value={rejectRemarksInput}
+                        onChange={ev => setRejectRemarksInput(ev.target.value)}
+                        placeholder="Enter reason for rejection…"
+                        rows={3}
+                        style={{ width: "100%", border: "1px solid #fca5a5", borderRadius: 6, padding: "8px 12px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, resize: "vertical", boxSizing: "border-box", outline: "none" }}
+                      />
+                      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                        <button
+                          onClick={async () => { const r = rejectRemarksInput.trim(); setSiteEntryConfirm(null); setRejectRemarksInput(""); const ok = await rejectSiteEntry(e._id, r); if (ok) { setSelectedSiteEntry(null); setActiveSiteSubTab("rejected"); } }}
+                          disabled={loading || !rejectRemarksInput.trim()}
+                          style={{ background: rejectRemarksInput.trim() ? "#dc2626" : "#e5e7eb", color: rejectRemarksInput.trim() ? "white" : colors.textLight, border: "none", borderRadius: 6, padding: "8px 20px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: rejectRemarksInput.trim() && !loading ? "pointer" : "not-allowed" }}>
+                          ✕ Confirm Reject
+                        </button>
+                        <button onClick={() => { setSiteEntryConfirm(null); setRejectRemarksInput(""); }}
+                          style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 6, color: colors.textMid, padding: "8px 16px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, cursor: "pointer" }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rejection remarks display (visible to all when entry is rejected) */}
+                  {e.status === "rejected" && e.rejectRemarks && (
+                    <div style={{ background: "#fff5f5", border: "1px solid #fca5a5", borderRadius: 8, padding: "14px 18px", marginBottom: 20 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#b91c1c", textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6 }}>Rejection Remarks</div>
+                      <div style={{ fontSize: 13, color: colors.text }}>{e.rejectRemarks}</div>
+                    </div>
+                  )}
 
                   {/* Field grid */}
                   <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "24px 28px" }}>
@@ -2433,10 +2506,33 @@ export default function App() {
                 <div style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 20, fontWeight: 600, color: colors.text, marginBottom: 6 }}>Site Entries</div>
                 <div style={{ fontSize: 13, color: colors.textLight, marginBottom: 20 }}>Entries submitted by site team. Click any entry to view details. Admin can approve or reject from the detail view.</div>
 
-                {/* Sub-tabs */}
+                {/* Cluster selector */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7 }}>Cluster</span>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {CLUSTERS.map(c => (
+                      <button key={c} onClick={() => setSelectedSiteCluster(c)}
+                        style={{ padding: "6px 18px", borderRadius: 6, border: selectedSiteCluster === c ? "none" : `1px solid ${colors.border}`, background: selectedSiteCluster === c ? colors.navy : colors.white, color: selectedSiteCluster === c ? "white" : colors.textMid, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Pipeline type tabs */}
+                <div style={{ display: "flex", gap: 0, borderBottom: `1px solid ${colors.border}`, marginBottom: 20 }}>
+                  {[["MS", "MS Pipeline"], ["HDPE", "HDPE Pipeline"]].map(([pt, label]) => (
+                    <button key={pt} onClick={() => setSiteEntryPipelineType(pt)}
+                      style={{ background: "none", border: "none", borderBottom: siteEntryPipelineType === pt ? `3px solid ${colors.navy}` : "3px solid transparent", color: siteEntryPipelineType === pt ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: siteEntryPipelineType === pt ? 700 : 500, padding: "10px 22px", cursor: "pointer" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Status sub-tabs */}
                 <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
                   {[["submitted", "Submitted"], ["approved", "Approved"], ["rejected", "Rejected"]].map(([id, label]) => {
-                    const count = siteEntries.filter(e => e.status === id).length;
+                    const count = siteEntries.filter(e => e.status === id && e.cluster === selectedSiteCluster && (e.pipelineType || 'MS') === siteEntryPipelineType).length;
                     return (
                       <button key={id} onClick={() => setActiveSiteSubTab(id)}
                         style={{ background: "none", border: "none", borderBottom: activeSiteSubTab === id ? `3px solid ${colors.navy}` : "3px solid transparent", color: activeSiteSubTab === id ? colors.navy : colors.textLight, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: activeSiteSubTab === id ? 700 : 500, padding: "10px 20px", cursor: "pointer" }}>
@@ -2448,7 +2544,7 @@ export default function App() {
 
                 {/* Entry list */}
                 {(() => {
-                  const tabEntries = siteEntries.filter(e => e.status === activeSiteSubTab);
+                  const tabEntries = siteEntries.filter(e => e.status === activeSiteSubTab && e.cluster === selectedSiteCluster && (e.pipelineType || 'MS') === siteEntryPipelineType);
                   if (tabEntries.length === 0) return (
                     <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "40px 24px", textAlign: "center", color: colors.textLight, fontSize: 13 }}>
                       No {activeSiteSubTab} entries.
@@ -2456,7 +2552,7 @@ export default function App() {
                   );
 
                   const renderRow = (e) => (
-                    <div key={e._id} onClick={() => { setSelectedSiteEntry(e); setSiteEntryConfirm(null); }}
+                    <div key={e._id} onClick={() => { setSelectedSiteEntry(e); setSiteEntryConfirm(null); setRejectRemarksInput(""); }}
                       className="trow"
                       style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "background 0.12s" }}>
                       <span style={{ fontSize: 11, color: colors.textLight, minWidth: 36 }}>#{e._id}</span>
