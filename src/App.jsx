@@ -2398,7 +2398,7 @@ export default function App() {
                     {e.documentPath && (
                       <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${colors.borderLight}` }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 4 }}>Document</div>
-                        <a href={supabase.storage.from("documents").getPublicUrl(e.documentPath).data.publicUrl} target="_blank" rel="noreferrer"
+                        <a href={supabase.storage.from("entry-documents").getPublicUrl(e.documentPath).data.publicUrl} target="_blank" rel="noreferrer"
                           style={{ fontSize: 12, color: colors.navy, textDecoration: "underline" }}>View attached document</a>
                       </div>
                     )}

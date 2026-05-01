@@ -23,17 +23,18 @@ Deno.serve(async (req: Request) => {
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
-    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: "No auth header" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
-  // Verify caller identity with the anon client
-  const callerClient = createClient(
+  const adminClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } }
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const { data: { user: caller }, error: callerErr } = await callerClient.auth.getUser();
+  const token = authHeader.replace("Bearer ", "");
+  const { data: { user: caller }, error: callerErr } = await adminClient.auth.getUser(token);
   console.log("caller:", JSON.stringify(caller?.user_metadata), "err:", callerErr?.message);
   if (callerErr || !caller) {
     return new Response(JSON.stringify({ error: "Unauthorized", detail: callerErr?.message }), {
