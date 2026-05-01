@@ -327,7 +327,7 @@ function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS"
         <td style="border:1px solid #ccc;padding:10px;width:50%;vertical-align:top">
           <b>Bank details for RTGS :</b><br/>
           <b>${i + 1})</b><br/>
-          Account Name - <b>${e.farmerName || e.landOwnerName || ""}</b><br/>
+          Account Name - <b>${e.farmerName || ""}</b><br/>
           Bank Name - <b>${e.bankName || ""}</b><br/>
           A/c No. - <b>${e.accountNo || ""}</b><br/>
           IFSC No. - <b>${e.ifscCode || ""}</b>
@@ -335,7 +335,7 @@ function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS"
         ${rtgsEntries[i + 1] ? `<td style="border:1px solid #ccc;padding:10px;width:50%;vertical-align:top">
           <b>Bank details for RTGS :</b><br/>
           <b>${i + 2})</b><br/>
-          Account Name - <b>${rtgsEntries[i + 1].landOwnerName || rtgsEntries[i + 1].farmerName || ""}</b><br/>
+          Account Name - <b>${rtgsEntries[i + 1].farmerName || ""}</b><br/>
           Bank Name - <b>${rtgsEntries[i + 1].bankName || ""}</b><br/>
           A/c No. - <b>${rtgsEntries[i + 1].accountNo || ""}</b><br/>
           IFSC No. - <b>${rtgsEntries[i + 1].ifscCode || ""}</b>
@@ -423,6 +423,9 @@ export default function App() {
   const [rejectRemarksInput, setRejectRemarksInput] = useState("");
   const [selectedSiteCluster, setSelectedSiteCluster] = useState("A");
   const [siteEntryPipelineType, setSiteEntryPipelineType] = useState("MS");
+  const [siteEntryEdit, setSiteEntryEdit] = useState(null); // _id of rejected entry being edited by site-qs
+  const [siteEntryEditForm, setSiteEntryEditForm] = useState({});
+  const [siteEntryEditFile, setSiteEntryEditFile] = useState(null);
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
   const [clusterJunctions, setClusterJunctions] = useState({});
@@ -452,6 +455,7 @@ export default function App() {
   const [batchPdfTotal, setBatchPdfTotal] = useState(null); // total compensation from PDF Annexure-1
   const fileRef = useRef();
   const docFileRef = useRef();
+  const siteEntryEditFileRef = useRef();
 
   // Lazy-load junctions for a specific cluster (fetches once, then caches)
   const loadClusterJunctions = useCallback(async (cluster) => {
@@ -534,6 +538,15 @@ export default function App() {
     };
     fetchAllLedger();
   }, [!!currentUser]);
+
+  // Reset ledger cluster to first allowed cluster when user logs in
+  useEffect(() => {
+    if (!currentUser) return;
+    const allowed = currentUser.username === "site-qs1" ? ["D1", "D2", "E"]
+      : currentUser.username === "site-qs2" ? ["A", "B", "C"]
+      : CLUSTERS;
+    if (!allowed.includes(selectedLedgerCluster)) setSelectedLedgerCluster(allowed[0]);
+  }, [currentUser?.username]);
 
   // Fetch site entries
   useEffect(() => {
@@ -671,6 +684,21 @@ export default function App() {
 
   const handleFormChange = (key, val) => {
     const updated = { ...form, [key]: val };
+    // Auto-populate diameter from junction master when junction or cluster changes
+    if (["junctionFrom", "junctionTo", "cluster"].includes(key)) {
+      const pt = currentUser?.role === "site-qs" ? formPipelineType : "MS";
+      const jFrom = updated.junctionFrom;
+      const jTo = updated.junctionTo;
+      const cluster = updated.cluster;
+      if (cluster && jFrom && jTo) {
+        const match = (clusterJunctions[cluster] || []).find(
+          j => (j.pipelineType || 'MS') === pt &&
+               j.from.trim().toLowerCase() === jFrom.trim().toLowerCase() &&
+               j.to.trim().toLowerCase() === jTo.trim().toLowerCase()
+        );
+        if (match?.dia) updated.dia = String(match.dia);
+      }
+    }
     // Auto-recalculate affectedArea and compensationAmount when relevant fields change
     if (["length", "row", "mandiRate", "yield"].includes(key)) {
       const length = parseFloat(key === "length" ? val : updated.length) || 0;
@@ -1031,6 +1059,12 @@ export default function App() {
   };
 
   const highWarnings = warnings.filter(w => w.severity === "high");
+  const isLedgerReadOnly = currentUser?.role === "site-qs";
+  const allowedLedgerClusters = currentUser?.username === "site-qs1"
+    ? ["D1", "D2", "E"]
+    : currentUser?.username === "site-qs2"
+      ? ["A", "B", "C"]
+      : CLUSTERS;
   const clusterLedger = ledger.filter(e => e.cluster === selectedLedgerCluster && (e.pipelineType || 'MS') === ledgerPipelineType);
   const pendingEntries = clusterLedger.filter(e => !e.approvalId);
   const approvedEntries = clusterLedger.filter(e => e.approvalId);
@@ -1162,6 +1196,53 @@ export default function App() {
     return true;
   };
 
+  const handleResubmitSiteEntry = async () => {
+    setLoading(true);
+    setError("");
+    const f = siteEntryEditForm;
+    const payload = {
+      status: "submitted",
+      reject_remarks: null,
+      cluster: f.cluster || null,
+      village: f.village || null,
+      khasra_no: f.khasraNo || null,
+      junction_from: f.junctionFrom || null,
+      junction_to: f.junctionTo || null,
+      chainage_from: f.chainageFrom || null,
+      chainage_to: f.chainageTo || null,
+      length: parseFloat(f.length) || null,
+      pipe_dia: parseFloat(f.dia) || null,
+      row_width: parseFloat(f.row) || null,
+      land_owner_name: f.landOwnerName || null,
+      farmer_name: f.farmerName || null,
+      crop: f.crop || null,
+      affected_area: parseFloat(f.affectedArea) || null,
+      mandi_rate: parseFloat(f.mandiRate) || null,
+      yield: parseFloat(f.yield) || null,
+      compensation_amount: parseFloat(f.compensationAmount) || null,
+      payment_mode: f.paymentMode || null,
+      bank_name: f.bankName || null,
+      account_no: f.accountNo || null,
+      ifsc_code: f.ifscCode || null,
+      remarks: f.remarks || null,
+      entry_id: f.entryId || null,
+    };
+    const { error: dbError } = await supabase.from("site_entries").update(payload).eq("id", siteEntryEdit);
+    if (dbError) { setError(`Failed to resubmit: ${dbError.message}`); setLoading(false); return; }
+    let docPath = f.documentPath || null;
+    if (siteEntryEditFile) {
+      const ext = siteEntryEditFile.name.split('.').pop();
+      const storagePath = `site_entries/${siteEntryEdit}/document.${ext}`;
+      const { error: storageError } = await supabase.storage.from('entry-documents').upload(storagePath, siteEntryEditFile, { upsert: true });
+      if (!storageError) { docPath = storagePath; await supabase.from("site_entries").update({ document_path: docPath }).eq("id", siteEntryEdit); }
+      else setError(`Document upload failed: ${storageError.message}`);
+    }
+    setSiteEntries(prev => prev.map(e => e._id === siteEntryEdit ? { ...e, ...f, status: "submitted", rejectRemarks: '', documentPath: docPath } : e));
+    setSiteEntryEdit(null); setSiteEntryEditForm({}); setSiteEntryEditFile(null);
+    setSelectedSiteEntry(null); setActiveSiteSubTab("submitted");
+    setLoading(false);
+  };
+
   const colors = {
     navy: "#1b3068", navyDark: "#142450", gold: "#c8973a", goldDark: "#b5832e",
     green: "#16a34a", bg: "#f0f2f6", white: "#ffffff",
@@ -1236,7 +1317,7 @@ export default function App() {
       {/* NAV TABS */}
       <div style={{ background: colors.white, borderBottom: `1px solid ${colors.border}`, padding: "0 40px", display: "flex" }}>
         {(currentUser?.role === "site-qs"
-          ? [["entry", "New Entry"], ["siteentries", "Site Entries"]]
+          ? [["entry", "New Entry"], ["ledger", "Ledger"], ["siteentries", "Site Entries"]]
           : [["entry", "New Entry"], ["ledger", "Ledger"], ["junctions", "Junctions"], ["topsheets", "Top Sheets"], ["siteentries", "Site Entries"], ...(currentUser?.role === "super-admin" ? [["usermgmt", "User Management"]] : [])]
         ).map(([id, label]) => (
           <button key={id} className="nav-tab" onClick={() => setActiveTab(id)}
@@ -1884,7 +1965,7 @@ export default function App() {
             ? allIds.filter(id => id.toLowerCase().includes(topsheetSearch.trim().toLowerCase()))
             : allIds;
           const selectedEntries = topsheetSelected && grouped[topsheetSelected]
-            ? grouped[topsheetSelected].sort((a, b) => parseChainageVal(a.chainageFrom) - parseChainageVal(b.chainageFrom))
+            ? grouped[topsheetSelected].sort((a, b) => a._id - b._id)
             : null;
           const thStyle = { background: "#f0f4ff", color: "#3a4566", fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, padding: "7px 8px", border: `1px solid ${colors.border}`, textAlign: "center", whiteSpace: "nowrap" };
           const tdStyle = { padding: "7px 8px", border: `1px solid ${colors.border}`, fontSize: 12, textAlign: "center", verticalAlign: "middle" };
@@ -2027,7 +2108,7 @@ export default function App() {
                                 <div key={i} style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: "14px 18px", background: "#fafbff" }}>
                                   <div style={{ fontSize: 12, fontWeight: 700, color: colors.textMid, marginBottom: 10 }}>Bank details for RTGS :</div>
                                   <div style={{ fontSize: 13, marginBottom: 6 }}><strong>{i + 1})</strong></div>
-                                  <div style={{ fontSize: 13, marginBottom: 4 }}>Account Name - <strong>{e.farmerName || e.landOwnerName || "—"}</strong></div>
+                                  <div style={{ fontSize: 13, marginBottom: 4 }}>Account Name - <strong>{e.farmerName || "—"}</strong></div>
                                   <div style={{ fontSize: 13, marginBottom: 4 }}>Bank Name - <strong>{e.bankName || "—"}</strong></div>
                                   <div style={{ fontSize: 13, marginBottom: 4 }}>A/c No. - <strong>{e.accountNo || "—"}</strong></div>
                                   <div style={{ fontSize: 13 }}>IFSC No. - <strong>{e.ifscCode || "—"}</strong></div>
@@ -2053,7 +2134,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7 }}>Cluster</span>
               <div style={{ display: "flex", gap: 8 }}>
-                {CLUSTERS.map(c => (
+                {allowedLedgerClusters.map(c => (
                   <button key={c} onClick={() => { setSelectedLedgerCluster(c); setSelectedPending(new Set()); setGeneratedApprovalId(null); }}
                     style={{ padding: "6px 18px", borderRadius: 6, border: selectedLedgerCluster === c ? "none" : `1px solid ${colors.border}`, background: selectedLedgerCluster === c ? colors.navy : colors.white, color: selectedLedgerCluster === c ? "white" : colors.textMid, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}>
                     {c}
@@ -2123,7 +2204,7 @@ export default function App() {
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                         <thead>
                           <tr>
-                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Payment Mode", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", "Remarks", ...(ledgerPipelineType === "HDPE" ? ["Entry ID"] : []), ""].map(h => (
+                            {["#", "Date", "Approval ID", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Payment Mode", "Bank", "Account No.", "IFSC", "Cheque/RTGS Details", "Document", "Remarks", ...(ledgerPipelineType === "HDPE" ? ["Entry ID"] : []), ...(isLedgerReadOnly ? [] : [""])].map(h => (
                               <th key={h} style={{ background: colors.formBg, color: "#6b7490", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid ${colors.border}`, whiteSpace: "nowrap" }}>{h}</th>
                             ))}
                           </tr>
@@ -2174,7 +2255,7 @@ export default function App() {
                               {ledgerPipelineType === "HDPE" && (
                                 <td style={{ padding: "11px 14px", color: e.entryId ? colors.text : colors.textLight, fontWeight: e.entryId ? 600 : 400 }}>{e.entryId || "—"}</td>
                               )}
-                              <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
+                              {!isLedgerReadOnly && <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                 <button onClick={() => handleEdit(e)}
                                   style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
                                   Edit
@@ -2242,7 +2323,7 @@ export default function App() {
                                     </button>
                                   )
                                 )}
-                              </td>
+                              </td>}
                             </tr>
                           ))}
                         </tbody>
@@ -2262,7 +2343,7 @@ export default function App() {
                       ) : (
                         <>
                           {/* Generate ID / Accept bar */}
-                          <div style={{ background: "#fffbeb", borderBottom: `1px solid #fde68a`, padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                          {!isLedgerReadOnly && <div style={{ background: "#fffbeb", borderBottom: `1px solid #fde68a`, padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
                             <div>
                               <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 }}>
                                 {pendingEntries.length} {pendingEntries.length === 1 ? "entry" : "entries"} awaiting approval
@@ -2283,20 +2364,27 @@ export default function App() {
                                 {loading ? "Processing…" : "Accept"}
                               </button>
                             </div>
-                          </div>
+                          </div>}
+                          {isLedgerReadOnly && (
+                            <div style={{ background: "#fffbeb", borderBottom: `1px solid #fde68a`, padding: "12px 20px" }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: 0.6 }}>
+                                {pendingEntries.length} {pendingEntries.length === 1 ? "entry" : "entries"} awaiting approval
+                              </span>
+                            </div>
+                          )}
 
                           {/* Pending table */}
                           <div style={{ overflowX: "auto" }}>
                             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                               <thead>
                                 <tr>
-                                  <th style={{ background: "#fffbeb", borderBottom: `1px solid #fde68a`, padding: "10px 14px" }}>
+                                  {!isLedgerReadOnly && <th style={{ background: "#fffbeb", borderBottom: `1px solid #fde68a`, padding: "10px 14px" }}>
                                     <input type="checkbox"
                                       checked={pendingEntries.length > 0 && pendingEntries.every(e => selectedPending.has(e._id))}
                                       onChange={ev => setSelectedPending(ev.target.checked ? new Set(pendingEntries.map(e => e._id)) : new Set())}
                                       style={{ cursor: "pointer" }} />
-                                  </th>
-                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Payment Mode", "Bank", "Account No.", "IFSC", "Document", "Remarks", ""].map(h => (
+                                  </th>}
+                                  {["#", "Date", "Cluster", "Village", "Khasra No.", "Jn. From", "Jn. To", "Chainage", "Length", "ROW", "Land Owner", "Farmer / Lessee", "Compensation", "Crop", "Area (Ha)", "Mandi Rate", "Yield", "Payment Mode", "Bank", "Account No.", "IFSC", "Document", "Remarks", ...(isLedgerReadOnly ? [] : [""])].map(h => (
                                     <th key={h} style={{ background: "#fffbeb", color: "#92400e", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, padding: "10px 14px", textAlign: "left", borderBottom: `1px solid #fde68a`, whiteSpace: "nowrap" }}>{h}</th>
                                   ))}
                                 </tr>
@@ -2304,11 +2392,11 @@ export default function App() {
                               <tbody>
                                 {pendingEntries.map((e, i) => (
                                   <tr key={i} className="trow" style={{ borderBottom: `1px solid #f0f2f8`, background: selectedPending.has(e._id) ? "#fffbeb" : undefined }}>
-                                    <td style={{ padding: "11px 14px" }}>
+                                    {!isLedgerReadOnly && <td style={{ padding: "11px 14px" }}>
                                       <input type="checkbox" checked={selectedPending.has(e._id)}
                                         onChange={ev => setSelectedPending(prev => { const s = new Set(prev); ev.target.checked ? s.add(e._id) : s.delete(e._id); return s; })}
                                         style={{ cursor: "pointer" }} />
-                                    </td>
+                                    </td>}
                                     <td style={{ padding: "11px 14px", color: colors.textLight, fontWeight: 600, fontSize: 12 }}>{clusterLedger.findIndex(ce => ce._id === e._id) + 1}</td>
                                     <td style={{ padding: "11px 14px", color: colors.textMid }}>{e.date}</td>
                                     <td style={{ padding: "11px 14px" }}>{e.cluster}</td>
@@ -2338,7 +2426,7 @@ export default function App() {
                                     <td style={{ padding: "11px 14px", maxWidth: 160, color: e.remarks ? colors.text : colors.textLight, fontStyle: e.remarks ? "normal" : "italic" }} title={e.remarks || ""}>
                                       {e.remarks ? (e.remarks.length > 30 ? e.remarks.slice(0, 30) + "…" : e.remarks) : "—"}
                                     </td>
-                                    <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
+                                    {!isLedgerReadOnly && <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
                                       <button onClick={() => handleEdit(e)}
                                         style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.navy, fontFamily: "'Source Sans 3', sans-serif", fontSize: 12, fontWeight: 600, padding: "4px 12px", cursor: "pointer", marginRight: 6 }}>
                                         Edit
@@ -2357,7 +2445,7 @@ export default function App() {
                                           Delete
                                         </button>
                                       )}
-                                    </td>
+                                    </td>}
                                   </tr>
                                 ))}
                               </tbody>
@@ -2395,6 +2483,111 @@ export default function App() {
                 ["Payment Mode", e.paymentMode], ["Bank Name", e.bankName],
                 ["Account Number", e.accountNo], ["IFSC Code", e.ifscCode],
               ].filter(([, v]) => v);
+
+              // ---- EDIT VIEW (site-qs editing a rejected entry) ----
+              if (siteEntryEdit === e._id) {
+                const isHdpe = (e.pipelineType || 'MS') === 'HDPE';
+                const sef = siteEntryEditForm;
+                const clusterJns = (clusterJunctions[sef.cluster] || []).filter(j => (j.pipelineType || 'MS') === (e.pipelineType || 'MS'));
+                const labelStyle = { fontSize: 10.5, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6, display: "block" };
+                const inputStyle = { width: "100%", border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 10px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, boxSizing: "border-box" };
+                return (
+                  <div>
+                    {/* Edit top bar */}
+                    <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, padding: "16px 24px", marginBottom: 14, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                      <button onClick={() => { setSiteEntryEdit(null); setSiteEntryEditForm({}); setSiteEntryEditFile(null); }}
+                        style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "7px 14px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.textMid, cursor: "pointer" }}>
+                        ← Cancel
+                      </button>
+                      <span style={{ fontFamily: "'Lora', Georgia, serif", fontSize: 17, fontWeight: 600, color: colors.text }}>Edit Site Entry #{e._id}</span>
+                      {isHdpe && <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7, marginLeft: 8 }}>HDPE Pipeline</span>}
+                      {isHdpe && (
+                        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7 }}>Entry ID</span>
+                          <input
+                            value={sef.entryId || ""}
+                            onChange={ev => setSiteEntryEditForm(p => ({ ...p, entryId: ev.target.value }))}
+                            placeholder="e.g. E-001"
+                            style={{ border: `1px solid ${colors.border}`, borderRadius: 5, padding: "7px 12px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.text, background: colors.white, width: 150, outline: "none" }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Fields */}
+                    {GROUPS.map(group => {
+                      const gFields = FIELDS.filter(f => f.group === group.id && (!f.hdpeSiteQsOnly || isHdpe) && !(isHdpe && f.key === "entryId"));
+                      if (gFields.length === 0) return null;
+                      return (
+                        <div key={group.id} style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, marginBottom: 14, overflow: "hidden" }}>
+                          <div style={{ background: colors.formBg, borderBottom: `1px solid ${colors.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 9 }}>
+                            <span style={{ fontSize: 14 }}>{group.icon}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#3a4566", textTransform: "uppercase", letterSpacing: 0.8 }}>{group.label}</span>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
+                            {gFields.map((f, idx) => (
+                              <div key={f.key} style={{ padding: "14px 20px", borderRight: (idx + 1) % 3 === 0 ? "none" : `1px solid ${colors.borderLight}`, borderBottom: idx < gFields.length - 3 ? `1px solid ${colors.borderLight}` : "none" }}>
+                                <label style={labelStyle}>{f.label}</label>
+                                {f.type === "textarea" ? (
+                                  <textarea value={sef[f.key] || ""} onChange={ev => setSiteEntryEditForm(p => ({ ...p, [f.key]: ev.target.value }))} rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+                                ) : f.type === "select" ? (() => {
+                                  const opts = f.options ? f.options : f.key === "junctionFrom" ? [...new Set(clusterJns.map(j => j.from))].sort() : [...new Set(clusterJns.map(j => j.to))].sort();
+                                  return (
+                                    <select value={sef[f.key] || ""} onChange={ev => setSiteEntryEditForm(p => ({ ...p, [f.key]: ev.target.value }))} style={{ ...inputStyle, cursor: "pointer" }}>
+                                      <option value="">— Select —</option>
+                                      {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                  );
+                                })() : (
+                                  <input value={sef[f.key] || ""} onChange={ev => setSiteEntryEditForm(p => ({ ...p, [f.key]: ev.target.value }))} style={inputStyle} />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Document */}
+                    <div style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 10, marginBottom: 14, overflow: "hidden" }}>
+                      <div style={{ background: colors.formBg, borderBottom: `1px solid ${colors.border}`, padding: "11px 20px", display: "flex", alignItems: "center", gap: 9 }}>
+                        <span style={{ fontSize: 14 }}>📎</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#3a4566", textTransform: "uppercase", letterSpacing: 0.8 }}>Supporting Document</span>
+                      </div>
+                      <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        {siteEntryEditFile ? (
+                          <>
+                            <span style={{ fontSize: 13, color: colors.text }}>📄 {siteEntryEditFile.name}</span>
+                            <button onClick={() => { setSiteEntryEditFile(null); if (siteEntryEditFileRef.current) siteEntryEditFileRef.current.value = ""; }}
+                              style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, fontSize: 12, padding: "4px 10px", cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Remove</button>
+                            <span style={{ fontSize: 12, color: colors.textLight }}>|</span>
+                          </>
+                        ) : e.documentPath ? (
+                          <>
+                            <a href={supabase.storage.from("entry-documents").getPublicUrl(e.documentPath).data.publicUrl} target="_blank" rel="noreferrer"
+                              style={{ fontSize: 13, color: colors.navy, fontWeight: 600, textDecoration: "none" }}>📄 View Current Document</a>
+                            <span style={{ fontSize: 12, color: colors.textLight }}>·</span>
+                          </>
+                        ) : null}
+                        <button onClick={() => siteEntryEditFileRef.current.click()}
+                          style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 5, color: colors.textMid, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, padding: "7px 16px", cursor: "pointer" }}>
+                          {e.documentPath && !siteEntryEditFile ? "Replace Document" : "Attach Document"}
+                        </button>
+                        <input ref={siteEntryEditFileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }}
+                          onChange={ev => { if (ev.target.files[0]) setSiteEntryEditFile(ev.target.files[0]); }} />
+                      </div>
+                    </div>
+
+                    {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+
+                    <button onClick={handleResubmitSiteEntry} disabled={loading}
+                      style={{ width: "100%", padding: "12px 0", background: loading ? "#94a3b8" : colors.navy, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer" }}>
+                      {loading ? "Submitting…" : "Save & Resubmit for Approval →"}
+                    </button>
+                  </div>
+                );
+              }
+
               return (
                 <div>
                   {/* Top bar */}
@@ -2411,6 +2604,12 @@ export default function App() {
                     {e.status === "submitted" && <span style={{ fontSize: 11, fontWeight: 700, background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", borderRadius: 4, padding: "2px 10px" }}>Pending Review</span>}
                     {e.status === "approved" && <span style={{ fontSize: 11, fontWeight: 700, background: "#f0fdf4", color: colors.green, border: "1px solid #86efac", borderRadius: 4, padding: "2px 10px" }}>✓ Approved</span>}
                     {e.status === "rejected" && <span style={{ fontSize: 11, fontWeight: 700, background: "#fff5f5", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 4, padding: "2px 10px" }}>✕ Rejected</span>}
+                    {currentUser?.role === "site-qs" && e.status === "rejected" && (
+                      <button onClick={() => { setSiteEntryEditForm({ ...e }); setSiteEntryEdit(e._id); }}
+                        style={{ marginLeft: "auto", padding: "8px 20px", background: colors.navy, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                        ✎ Edit &amp; Resubmit
+                      </button>
+                    )}
                     {isAdmin && e.status === "submitted" && (
                       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
                         {siteEntryConfirm === "approve" ? (
