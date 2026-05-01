@@ -419,6 +419,7 @@ export default function App() {
   const [siteEntries, setSiteEntries] = useState([]);
   const [activeSiteSubTab, setActiveSiteSubTab] = useState("submitted");
   const [selectedSiteEntry, setSelectedSiteEntry] = useState(null);
+  const [siteEntryConfirm, setSiteEntryConfirm] = useState(null); // 'approve' | 'reject' | null
   const [generatedApprovalId, setGeneratedApprovalId] = useState(null);
   const [hoverUpload, setHoverUpload] = useState(false);
   const [clusterJunctions, setClusterJunctions] = useState({});
@@ -2357,7 +2358,7 @@ export default function App() {
                 <div>
                   {/* Top bar */}
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-                    <button onClick={() => setSelectedSiteEntry(null)}
+                    <button onClick={() => { setSelectedSiteEntry(null); setSiteEntryConfirm(null); }}
                       style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "7px 14px", fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, color: colors.textMid, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                       ← Back
                     </button>
@@ -2370,17 +2371,39 @@ export default function App() {
                     {e.status === "approved" && <span style={{ fontSize: 11, fontWeight: 700, background: "#f0fdf4", color: colors.green, border: "1px solid #86efac", borderRadius: 4, padding: "2px 10px" }}>✓ Approved</span>}
                     {e.status === "rejected" && <span style={{ fontSize: 11, fontWeight: 700, background: "#fff5f5", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 4, padding: "2px 10px" }}>✕ Rejected</span>}
                     {isAdmin && e.status === "submitted" && (
-                      <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-                        <button onClick={async () => { await approveSiteEntry(e); setSelectedSiteEntry(null); setActiveSiteSubTab("approved"); }}
-                          disabled={loading}
-                          style={{ padding: "8px 22px", background: colors.green, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                          ✓ Approve
-                        </button>
-                        <button onClick={async () => { await rejectSiteEntry(e._id); setSelectedSiteEntry(null); setActiveSiteSubTab("rejected"); }}
-                          disabled={loading}
-                          style={{ padding: "8px 22px", background: "none", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
-                          ✕ Reject
-                        </button>
+                      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+                        {siteEntryConfirm === "approve" ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 12, color: colors.green, fontWeight: 600 }}>Confirm approve?</span>
+                            <button onClick={async () => { setSiteEntryConfirm(null); await approveSiteEntry(e); setSelectedSiteEntry(null); setActiveSiteSubTab("approved"); }}
+                              disabled={loading}
+                              style={{ background: colors.green, color: "white", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
+                            <button onClick={() => setSiteEntryConfirm(null)}
+                              style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
+                          </span>
+                        ) : siteEntryConfirm === "reject" ? (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 12, color: "#b91c1c", fontWeight: 600 }}>Confirm reject?</span>
+                            <button onClick={async () => { setSiteEntryConfirm(null); await rejectSiteEntry(e._id); setSelectedSiteEntry(null); setActiveSiteSubTab("rejected"); }}
+                              disabled={loading}
+                              style={{ background: "#dc2626", color: "white", border: "none", borderRadius: 4, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>Yes</button>
+                            <button onClick={() => setSiteEntryConfirm(null)}
+                              style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.textMid, padding: "4px 8px", fontSize: 12, cursor: "pointer", fontFamily: "'Source Sans 3', sans-serif" }}>No</button>
+                          </span>
+                        ) : (
+                          <>
+                            <button onClick={() => setSiteEntryConfirm("approve")}
+                              disabled={loading}
+                              style={{ padding: "8px 22px", background: colors.green, color: "white", border: "none", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+                              ✓ Approve
+                            </button>
+                            <button onClick={() => setSiteEntryConfirm("reject")}
+                              disabled={loading}
+                              style={{ padding: "8px 22px", background: "none", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: 6, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}>
+                              ✕ Reject
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2433,7 +2456,7 @@ export default function App() {
                   );
 
                   const renderRow = (e) => (
-                    <div key={e._id} onClick={() => setSelectedSiteEntry(e)}
+                    <div key={e._id} onClick={() => { setSelectedSiteEntry(e); setSiteEntryConfirm(null); }}
                       className="trow"
                       style={{ background: colors.white, border: `1px solid ${colors.border}`, borderRadius: 8, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", transition: "background 0.12s" }}>
                       <span style={{ fontSize: 11, color: colors.textLight, minWidth: 36 }}>#{e._id}</span>
