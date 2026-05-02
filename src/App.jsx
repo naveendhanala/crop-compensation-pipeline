@@ -312,18 +312,19 @@ function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS"
   const rowWidth = entries[0]?.row || "";
   const date = entries[0]?.date || new Date().toLocaleDateString("en-IN");
   const hdpeBase = ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION FROM", "JUNCTION TO", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PRODUCTIVITY IN REQUIRED AREA (C=AxB)", "RATE/QUINTAL (\u20b9) (D)", "AMOUNT (E=CxD)", "FARMER / LESSEE NAME", "PAYMENT MODE"];
+  const msBase = ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION FROM", "JUNCTION TO", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PRODUCTIVITY IN REQUIRED AREA (C=AxB)", "RATE/QUINTAL (\u20b9) (D)", "AMOUNT (E=CxD)", "FARMER / LESSEE NAME", "PAYMENT MODE", "REMARKS"];
   const headers = isHdpe
     ? [...hdpeBase, ...(showBankCols ? ["BANK", "ACCOUNT NO", "IFSC"] : []), "REMARKS"]
-    : ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PRODUCTIVITY IN REQUIRED AREA (C=AxB)", "RATE/QUINTAL (\u20b9) (D)", "AMOUNT (E=CxD)", "FARMER / LESSEE NAME", "PAYMENT MODE", "REMARKS"];
+    : msBase;
   const rows = entries.map((e, i) => {
     const area = parseFloat(e.affectedArea) || 0;
     const yld = parseFloat(e.yield) || 0;
     const prodInArea = area && yld ? parseFloat((area * yld).toFixed(3)) : "";
     const landArea = area ? Math.round(area * 10000) : "";
-    const hdpeRow = [i + 1, e.dia || "", e.village || "", e.junctionFrom || "", e.junctionTo || "", e.chainageFrom || "", e.chainageTo || "", e.length || "", e.row || "", landArea, area || "", e.khasraNo || "", e.crop || "", yld || "", prodInArea, e.mandiRate || "", e.compensationAmount || "", e.farmerName || "", e.paymentMode || ""];
+    const baseRow = [i + 1, e.dia || "", e.village || "", e.junctionFrom || "", e.junctionTo || "", e.chainageFrom || "", e.chainageTo || "", e.length || "", e.row || "", landArea, area || "", e.khasraNo || "", e.crop || "", yld || "", prodInArea, e.mandiRate || "", e.compensationAmount || "", e.farmerName || "", e.paymentMode || ""];
     return isHdpe
-      ? [...hdpeRow, ...(showBankCols ? [e.bankName || "", e.accountNo || "", e.ifscCode || ""] : []), e.remarks || ""]
-      : [i + 1, e.dia || "", e.village || "", `${e.junctionFrom || ""}${e.junctionTo ? "-" + e.junctionTo : ""}`, e.chainageFrom || "", e.chainageTo || "", e.length || "", e.row || "", landArea, area || "", e.khasraNo || "", e.crop || "", yld || "", prodInArea, e.mandiRate || "", e.compensationAmount || "", e.farmerName || "", e.paymentMode || "", e.remarks || ""];
+      ? [...baseRow, ...(showBankCols ? [e.bankName || "", e.accountNo || "", e.ifscCode || ""] : []), e.remarks || ""]
+      : [...baseRow, e.remarks || ""];
   });
   const totalLength = entries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
   const totalArea = entries.reduce((s, e) => s + (parseFloat(e.affectedArea) || 0), 0);
@@ -350,9 +351,9 @@ function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS"
   const rtgsEntries = entries.filter(e => e.paymentMode === "RTGS");
   const rtgsSection = !isHdpe && rtgsEntries.length > 0 ? `
     <br/>
-    <table style="border:none;width:100%">
+    <table style="border-collapse:collapse;width:100%">
       ${rtgsEntries.map((e, i) => i % 2 === 0 ? `<tr>
-        <td style="border:1px solid #ccc;padding:10px;width:50%;vertical-align:top">
+        <td colspan="7" style="border:1px solid #ccc;padding:10px;vertical-align:top">
           <b>Bank details for RTGS :</b><br/>
           <b>${i + 1})</b><br/>
           Account Name - <b>${e.farmerName || ""}</b><br/>
@@ -360,14 +361,15 @@ function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS"
           A/c No. - <b>${e.accountNo || ""}</b><br/>
           IFSC No. - <b>${e.ifscCode || ""}</b>
         </td>
-        ${rtgsEntries[i + 1] ? `<td style="border:1px solid #ccc;padding:10px;width:50%;vertical-align:top">
+        ${rtgsEntries[i + 1] ? `<td colspan="7" style="border:1px solid #ccc;padding:10px;vertical-align:top">
           <b>Bank details for RTGS :</b><br/>
           <b>${i + 2})</b><br/>
           Account Name - <b>${rtgsEntries[i + 1].farmerName || ""}</b><br/>
           Bank Name - <b>${rtgsEntries[i + 1].bankName || ""}</b><br/>
           A/c No. - <b>${rtgsEntries[i + 1].accountNo || ""}</b><br/>
           IFSC No. - <b>${rtgsEntries[i + 1].ifscCode || ""}</b>
-        </td>` : "<td></td>"}
+        </td>` : "<td colspan='7'></td>"}
+        <td colspan="6"></td>
       </tr>` : "").filter(Boolean).join("")}
     </table>` : "";
   const tableHTML = `<html><head><meta charset="UTF-8"><style>
@@ -377,18 +379,16 @@ function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS"
     .nh{border:none;text-align:center}
   </style></head><body>
     <p style="text-align:center;font-weight:bold;font-size:12pt;margin:2px 0">${PROJECT_NAME}</p>
-    <table style="border:none;margin-bottom:6px;width:100%">
-      <tr><td class="nh" colspan="2" style="text-align:left">CLUSTER ${cluster}</td></tr>
-      <tr><td class="nh" colspan="2" style="text-align:center;font-weight:bold">CROP COMPENSATION ABSTRACT</td></tr>
-      <tr><td class="nh" colspan="2" style="text-align:right">S.No: ${approvalId} &nbsp;&nbsp;&nbsp; Date: ${date}</td></tr>
-    </table>
+    <p style="text-align:center;font-weight:bold;margin:2px 0">CROP COMPENSATION ABSTRACT</p>
+    <p style="text-align:left;margin:2px 0">CLUSTER ${cluster}</p>
+    <p style="text-align:right;margin:2px 0">S.No: ${approvalId} &nbsp;&nbsp;&nbsp; Date: ${date}</p>
     <table>
       <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
       <tbody>
         ${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}
         ${isHdpe
           ? `<tr><td colspan="7" style="font-weight:bold;text-align:right">TOTAL</td><td style="font-weight:bold">${totalLength}</td><td></td><td></td><td style="font-weight:bold">${totalArea.toFixed(3)}</td><td colspan="5"></td><td style="font-weight:bold">${totalAmount.toLocaleString("en-IN")}</td><td colspan="${showBankCols ? 6 : 3}"></td></tr>`
-          : `<tr><td colspan="6" style="font-weight:bold;text-align:right">TOTAL</td><td style="font-weight:bold">${totalLength}</td><td></td><td></td><td style="font-weight:bold">${totalArea.toFixed(3)}</td><td colspan="5"></td><td style="font-weight:bold">${totalAmount.toLocaleString("en-IN")}</td><td colspan="3"></td></tr>`
+          : `<tr><td colspan="7" style="font-weight:bold;text-align:right">TOTAL</td><td style="font-weight:bold">${totalLength}</td><td></td><td></td><td style="font-weight:bold">${totalArea.toFixed(3)}</td><td colspan="5"></td><td style="font-weight:bold">${totalAmount.toLocaleString("en-IN")}</td><td colspan="3"></td></tr>`
         }
       </tbody>
     </table>
@@ -2085,9 +2085,7 @@ export default function App() {
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                           <thead>
                             <tr>
-                              {[...(topsheetPipelineType === "HDPE"
-                                ? ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION FROM", "JUNCTION TO", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PROD. IN REQ. AREA (C=AxB)", "RATE/QUINTAL (₹) (D)", "AMOUNT (E=CxD)", "FARMER / LESSEE NAME", "PAYMENT MODE"]
-                                : ["S.NO", "PIPE DIA (MM)", "VILLAGE NAME", "JUNCTION", "CHAINAGE FROM", "CHAINAGE TO", "LENGTH (RMT)", "ROW (M)", "LAND AREA (M2)", "REQUIRED AREA (HA)", "KHASRA NO.", "CROP / PLANT", "PRODUCTIVITY/HA (QUINTAL) (B)", "PROD. IN REQ. AREA (C=AxB)", "RATE/QUINTAL (₹) (D)", "AMOUNT (E=CxD)", "FARMER / LESSEE NAME", "PAYMENT MODE"]),
+                              {[..."S.NO,PIPE DIA (MM),VILLAGE NAME,JUNCTION FROM,JUNCTION TO,CHAINAGE FROM,CHAINAGE TO,LENGTH (RMT),ROW (M),LAND AREA (M2),REQUIRED AREA (HA),KHASRA NO.,CROP / PLANT,PRODUCTIVITY/HA (QUINTAL) (B),PROD. IN REQ. AREA (C=AxB),RATE/QUINTAL (₹) (D),AMOUNT (E=CxD),FARMER / LESSEE NAME,PAYMENT MODE".split(","),
                                 ...(showBankCols ? ["BANK", "ACCOUNT NO", "IFSC"] : []),
                                 "REMARKS"
                               ].map(h => <th key={h} style={thStyle}>{h}</th>)}
@@ -2104,14 +2102,8 @@ export default function App() {
                                   <td style={tdStyle}>{i + 1}</td>
                                   <td style={tdStyle}>{e.dia || "—"}</td>
                                   <td style={{ ...tdStyle, textAlign: "left" }}>{e.village || "—"}</td>
-                                  {topsheetPipelineType === "HDPE" ? (
-                                    <>
-                                      <td style={tdStyle}>{e.junctionFrom || "—"}</td>
-                                      <td style={tdStyle}>{e.junctionTo || "—"}</td>
-                                    </>
-                                  ) : (
-                                    <td style={tdStyle}>{e.junctionFrom}{e.junctionTo ? "-" + e.junctionTo : ""}</td>
-                                  )}
+                                  <td style={tdStyle}>{e.junctionFrom || "—"}</td>
+                                  <td style={tdStyle}>{e.junctionTo || "—"}</td>
                                   <td style={tdStyle}>{e.chainageFrom || "—"}</td>
                                   <td style={tdStyle}>{e.chainageTo || "—"}</td>
                                   <td style={tdStyle}>{e.length || "—"}</td>
@@ -2151,7 +2143,7 @@ export default function App() {
                                 </>
                               ) : (
                                 <>
-                                  <td colSpan={6} style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>TOTAL</td>
+                                  <td colSpan={7} style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>TOTAL</td>
                                   <td style={tdStyle}>{totalLength.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</td>
                                   <td style={tdStyle} />
                                   <td style={tdStyle} />
