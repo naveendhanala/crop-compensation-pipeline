@@ -319,6 +319,25 @@ function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS"
   const totalLength = entries.reduce((s, e) => s + (parseFloat(e.length) || 0), 0);
   const totalArea = entries.reduce((s, e) => s + (parseFloat(e.affectedArea) || 0), 0);
   const totalAmount = entries.reduce((s, e) => s + (parseFloat(e.compensationAmount) || 0), 0);
+  const diaGroups = {};
+  entries.forEach(e => {
+    const dia = e.dia;
+    if (!dia) return;
+    if (!diaGroups[dia]) diaGroups[dia] = { amount: 0, length: 0 };
+    diaGroups[dia].amount += parseFloat(e.compensationAmount) || 0;
+    diaGroups[dia].length += parseFloat(e.length) || 0;
+  });
+  const diaRateRows = Object.entries(diaGroups)
+    .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
+    .map(([dia, { amount, length }]) => {
+      const rate = length > 0 ? (amount / length).toFixed(2) : "—";
+      return `${dia}mm → Rs. ${rate}/Rmt`;
+    });
+  const diaSection = diaRateRows.length > 0 ? `
+    <br/>
+    <div style="font-weight:bold;font-size:10pt;margin-top:10px">Diameter-wise Rate :</div>
+    ${diaRateRows.map(r => `<div style="font-size:10pt;margin-top:4px">${r}</div>`).join("")}
+  ` : "";
   const rtgsEntries = entries.filter(e => e.paymentMode === "RTGS");
   const rtgsSection = rtgsEntries.length > 0 ? `
     <br/>
@@ -349,19 +368,20 @@ function downloadTopSheetExcel(entries, approvalId, cluster, pipelineType = "MS"
     .nh{border:none;text-align:center}
   </style></head><body>
     <p style="text-align:center;font-weight:bold;font-size:12pt;margin:2px 0">${PROJECT_NAME}</p>
-    <table style="border:none;margin-bottom:6px">
+    <table style="border:none;margin-bottom:6px;width:100%">
       <tr><td class="nh" colspan="2" style="text-align:left">CLUSTER ${cluster}</td></tr>
       <tr><td class="nh" colspan="2" style="text-align:center;font-weight:bold">CROP COMPENSATION ABSTRACT</td></tr>
-      <tr><td class="nh" style="text-align:left">S.No: ${approvalId}</td><td class="nh" style="text-align:right">Date: ${date}</td></tr>
+      <tr><td class="nh" colspan="2" style="text-align:right">S.No: ${approvalId} &nbsp;&nbsp;&nbsp; Date: ${date}</td></tr>
     </table>
     <table>
       <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
       <tbody>
         ${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}
-        <tr><td colspan="6" style="font-weight:bold;text-align:right">TOTAL</td><td style="font-weight:bold">${totalLength}</td><td></td><td style="font-weight:bold">${totalArea.toFixed(3)}</td><td colspan="6"></td><td style="font-weight:bold">${totalAmount.toLocaleString("en-IN")}</td><td colspan="3"></td></tr>
+        <tr><td colspan="6" style="font-weight:bold;text-align:right">TOTAL</td><td style="font-weight:bold">${totalLength}</td><td></td><td></td><td style="font-weight:bold">${totalArea.toFixed(3)}</td><td colspan="5"></td><td style="font-weight:bold">${totalAmount.toLocaleString("en-IN")}</td><td colspan="3"></td></tr>
       </tbody>
     </table>
     ${rtgsSection}
+    ${diaSection}
   </body></html>`;
   const blob = new Blob([tableHTML], { type: "application/vnd.ms-excel;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -546,6 +566,7 @@ export default function App() {
       : currentUser.username === "site-qs2" ? ["A", "B", "C"]
       : CLUSTERS;
     if (!allowed.includes(selectedLedgerCluster)) setSelectedLedgerCluster(allowed[0]);
+    if (!allowed.includes(selectedSiteCluster)) setSelectedSiteCluster(allowed[0]);
   }, [currentUser?.username]);
 
   // Fetch site entries
@@ -2089,8 +2110,9 @@ export default function App() {
                               <td colSpan={6} style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>TOTAL</td>
                               <td style={tdStyle}>{totalLength.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</td>
                               <td style={tdStyle} />
+                              <td style={tdStyle} />
                               <td style={tdStyle}>{totalArea.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</td>
-                              <td colSpan={6} style={tdStyle} />
+                              <td colSpan={5} style={tdStyle} />
                               <td style={{ ...tdStyle, color: colors.green }}>{totalAmount.toLocaleString("en-IN")}</td>
                               <td colSpan={3} style={tdStyle} />
                             </tr>
@@ -2114,6 +2136,34 @@ export default function App() {
                                   <div style={{ fontSize: 13 }}>IFSC No. - <strong>{e.ifscCode || "—"}</strong></div>
                                 </div>
                               ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      {/* Diameter-wise Rate Section */}
+                      {(() => {
+                        const dg = {};
+                        entries.forEach(e => {
+                          const dia = e.dia;
+                          if (!dia) return;
+                          if (!dg[dia]) dg[dia] = { amount: 0, length: 0 };
+                          dg[dia].amount += parseFloat(e.compensationAmount) || 0;
+                          dg[dia].length += parseFloat(e.length) || 0;
+                        });
+                        const rows = Object.entries(dg).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]));
+                        if (rows.length === 0) return null;
+                        return (
+                          <div style={{ padding: "16px 24px", borderTop: `2px solid ${colors.border}` }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: colors.textMid, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Diameter-wise Rate</div>
+                            <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+                              {rows.map(([dia, { amount, length }]) => {
+                                const rate = length > 0 ? (amount / length).toFixed(2) : "—";
+                                return (
+                                  <div key={dia} style={{ fontSize: 14, color: colors.textMid }}>
+                                    {dia}mm → Rs. <strong>{rate}</strong>/Rmt
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -2709,7 +2759,7 @@ export default function App() {
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: colors.textLight, textTransform: "uppercase", letterSpacing: 0.7 }}>Cluster</span>
                   <div style={{ display: "flex", gap: 8 }}>
-                    {CLUSTERS.map(c => (
+                    {allowedLedgerClusters.map(c => (
                       <button key={c} onClick={() => setSelectedSiteCluster(c)}
                         style={{ padding: "6px 18px", borderRadius: 6, border: selectedSiteCluster === c ? "none" : `1px solid ${colors.border}`, background: selectedSiteCluster === c ? colors.navy : colors.white, color: selectedSiteCluster === c ? "white" : colors.textMid, fontFamily: "'Source Sans 3', sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}>
                         {c}
